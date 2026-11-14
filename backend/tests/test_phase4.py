@@ -36,11 +36,27 @@ def test_urgent_notice_is_emailed_at_once_and_others_are_batched_hourly(client, 
     set_notifier(None)
 
 
-def test_without_smtp_notices_stay_in_the_app(client, llm):
+def test_without_smtp_notices_go_from_the_users_own_gmail(client, llm):
     w = sent_world(client, llm)
+    before = len(w.mail.sent)
     with w.session() as s:
-        notify(s, w.user_id, "escalation_urgent", "Urgent", "")
-        assert account_service.deliver_notifications(s, w.user_id) == 0
+        notify(s, w.user_id, "escalation_urgent", "Urgent", "Interview at Acme")
+        assert account_service.deliver_notifications(s, w.user_id) == 1
+        assert s.execute(select(Notification).where(Notification.kind == "escalation_urgent")).scalar_one().emailed is True
+    _, mail, _ = w.mail.sent[-1]
+    assert len(w.mail.sent) == before + 1 and mail.to == "me@example.com"          # the escalation address, never an employer
+    assert mail.subject == "[Job Apply Agent] Urgent" and "Interview at Acme" in mail.body and mail.thread_id is None
+
+
+def test_without_smtp_or_a_mailbox_notices_stay_in_the_app(client, user):
+    headers, user_id = user
+    import uuid
+
+    from app.db import user_session
+
+    with user_session(uuid.UUID(user_id)) as s:
+        notify(s, uuid.UUID(user_id), "escalation_urgent", "Urgent", "")
+        assert account_service.deliver_notifications(s, uuid.UUID(user_id)) == 0
         assert s.execute(select(Notification).where(Notification.kind == "escalation_urgent")).scalar_one().emailed is False
 
 

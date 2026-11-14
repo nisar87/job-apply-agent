@@ -14,6 +14,7 @@ import httpx
 
 from app.config import get_settings
 from app.connectors.fetcher import html_to_text
+from app.countries import split_hiring_labels
 
 
 @dataclass
@@ -42,6 +43,7 @@ class RawPosting:
     work_mode: str | None = None
     is_snippet: bool = False  # the source gave only part of the description
     contact_email: str | None = None
+    hiring_regions: list[str] | None = None  # where a remote job may hire from, as the board states it
 
 
 class JobSource(Protocol):
@@ -253,6 +255,118 @@ def demo_postings() -> list[RawPosting]:
                        location="Vienna", country="at", posted_date=today) for i, (t, c, r, e) in enumerate(rows)]
 
 
+def _cached_json(http: httpx.Client, url: str, ttl: int, **params):
+    """GET a public feed at most once per `ttl` seconds for all users and searches together, so the boards'
+    request limits are respected however many searches run. Stored in the shared key-value store."""
+    import json
+
+    from app.tasks.locks import get_redis
+
+    key = "src:" + url + "?" + "&".join(f"{k}={v}" for k, v in sorted(params.items()))
+    try:
+        cached = get_redis().get(key)
+    except Exception:  # noqa: BLE001 - no store: just fetch
+        cached = None
+    if cached:
+        return json.loads(cached)
+    resp = http.get(url, params=params)
+    resp.raise_for_status()
+    data = resp.json()
+    try:
+        get_redis().set(key, json.dumps(data), ex=ttl)
+    except Exception:  # noqa: BLE001
+        pass
+    return data
+
+
+class RemotiveSource:
+    """Remote jobs from remotive.com. Terms: link back to the job on Remotive and name Remotive as the source;
+    no more than about four requests a day, so the software category is fetched once every six hours."""
+
+    name = "remotive"
+
+    def __init__(self, http: httpx.Client | None = None):
+        self.http = http or httpx.Client(timeout=30, headers={"User-Agent": "JobApplyAgent/0.1"})
+
+    def search(self, query: SearchQuery) -> list[RawPosting]:
+        data = _cached_json(self.http, "https://remotive.com/api/remote-jobs", 6 * 3600, category="software-dev")
+        out = []
+        for r in data.get("jobs", []):
+            text = html_to_text(r.get("description", ""))
+            if not matches_keywords(f"{r.get('title', '')} {' '.join(r.get('tags') or [])} {text}", query.keywords):
+                continue
+            out.append(RawPosting(
+                source=self.name, source_id=str(r.get("id")), url=r.get("url", ""), title=r.get("title", ""),
+                company=r.get("company_name", ""), description=text, location=r.get("candidate_required_location", ""),
+                posted_date=_date(r.get("publication_date")), work_mode="remote",
+                contract_type=r.get("job_type") or None,
+                hiring_regions=split_hiring_labels(r.get("candidate_required_location")),
+            ))
+        return out
+
+
+class JobicySource:
+    """Remote jobs from jobicy.com. Terms: credit Jobicy and send applicants to the job's own URL.
+    The latest 100 engineering jobs are fetched at most every six hours."""
+
+    name = "jobicy"
+
+    def __init__(self, http: httpx.Client | None = None):
+        self.http = http or httpx.Client(timeout=30, headers={"User-Agent": "JobApplyAgent/0.1"})
+
+    def search(self, query: SearchQuery) -> list[RawPosting]:
+        data = _cached_json(self.http, "https://jobicy.com/api/v2/remote-jobs", 6 * 3600, count=100, industry="engineering")
+        out = []
+        for r in data.get("jobs", []):
+            text = html_to_text(r.get("jobDescription") or r.get("jobExcerpt") or "")
+            if not matches_keywords(f"{r.get('jobTitle', '')} {text}", query.keywords):
+                continue
+            out.append(RawPosting(
+                source=self.name, source_id=str(r.get("id")), url=r.get("url", ""), title=html_to_text(r.get("jobTitle", "")),
+                company=r.get("companyName", ""), description=text, location=r.get("jobGeo", ""),
+                posted_date=_date(r.get("pubDate")), work_mode="remote",
+                salary_min=r.get("salaryMin") or r.get("annualSalaryMin"), salary_max=r.get("salaryMax") or r.get("annualSalaryMax"),
+                contract_type=", ".join(r.get("jobType") or []) if isinstance(r.get("jobType"), list) else r.get("jobType"),
+                hiring_regions=split_hiring_labels(r.get("jobGeo")),
+            ))
+        return out
+
+
+class HimalayasSource:
+    """Remote jobs from himalayas.app. Terms: keep the application link unchanged, name Himalayas as the source,
+    never pass the jobs on to other boards. Their data refreshes daily, so each search is cached for 12 hours."""
+
+    name = "himalayas"
+    MAX_TERMS = 4
+
+    def __init__(self, http: httpx.Client | None = None):
+        self.http = http or httpx.Client(timeout=30, headers={"User-Agent": "JobApplyAgent/0.1"})
+
+    def search(self, query: SearchQuery) -> list[RawPosting]:
+        seen, out = set(), []
+        for term in [k for k in query.keywords if k.strip()][:self.MAX_TERMS]:
+            data = _cached_json(self.http, "https://himalayas.app/jobs/api/search", 12 * 3600, q=term, page=1)
+            for r in data.get("jobs", []):
+                guid = str(r.get("guid") or r.get("applicationLink"))
+                if guid in seen:
+                    continue
+                text = html_to_text(r.get("description") or r.get("excerpt") or "")
+                if not matches_keywords(f"{r.get('title', '')} {text}", query.keywords):
+                    continue
+                seen.add(guid)
+                out.append(RawPosting(
+                    source=self.name, source_id=guid, url=r.get("applicationLink", ""), title=r.get("title", ""),
+                    company=r.get("companyName", ""), description=text,
+                    location=", ".join(r.get("locationRestrictions") or []) or "Worldwide",
+                    posted_date=_date(r.get("pubDate")), work_mode="remote",
+                    salary_min=r.get("minSalary"), salary_max=r.get("maxSalary"),
+                    contract_type=r.get("employmentType") or None,
+                    hiring_regions=split_hiring_labels(r.get("locationRestrictions") or []) or ["Worldwide"],
+                ))
+        return out
+
+
+REMOTE_SOURCES = {"remotive", "jobicy", "himalayas"}
 COMPANY_FEED_SOURCES = {"greenhouse", "lever", "personio"}
 _registry: dict[str, JobSource] | None = None
 
@@ -266,7 +380,8 @@ def get_sources() -> dict[str, JobSource]:
     global _registry
     if _registry is None:
         _registry = {
-            s.name: s for s in (AdzunaSource(), ArbeitnowSource(), GreenhouseSource(), LeverSource(), PersonioSource())
+            s.name: s for s in (AdzunaSource(), ArbeitnowSource(), GreenhouseSource(), LeverSource(), PersonioSource(),
+                                RemotiveSource(), JobicySource(), HimalayasSource())
         }
         if get_settings().llm_provider == "fake":
             _registry = {"demo": FakeSource(demo_postings())}

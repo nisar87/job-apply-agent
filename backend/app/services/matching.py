@@ -6,6 +6,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.countries import hiring_allows
 from app.countries import name_of as country_name
 from app.llm.base import LLMClient
 from app.models import CV, Application, Block, Campaign, CVVersion, GlobalBlock, Match, Posting
@@ -99,6 +100,14 @@ def hard_filters(
                 fails.append(f"country {country_name(country)} is not in this search")
             elif not config.remote_outside_countries:
                 fails.append(f"remote job based in {country_name(country)}, a country not in this search")
+    regions, home = f.get("hiring_regions"), str(fact_sheet.get("home_country") or "").lower()
+    if regions and home:
+        allowed = hiring_allows(regions, home)
+        if allowed is False:
+            fails.append(f"hires only from {', '.join(regions[:4])}{'…' if len(regions) > 4 else ''}, "
+                         f"not from {country_name(home)}")
+        elif allowed is None:
+            notes.append(f"unclear whether it hires from {country_name(home)}: {', '.join(regions[:4])}")
     if config.work_modes:
         if mode == "unknown":
             if config.unknown_policy.get("work_mode", "apply") == "skip":

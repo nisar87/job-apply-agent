@@ -8,6 +8,7 @@ import type { CV } from "@/lib/types";
 
 const FACTS: { key: string; label: string; hint?: string }[] = [
   { key: "location", label: "Where you live" },
+  { key: "home_country", label: "Country you live in", hint: "Two-letter code or name, e.g. pk or Pakistan. Remote jobs that cannot hire there are skipped" },
   { key: "notice_period", label: "Notice period" },
   { key: "earliest_start", label: "Earliest start date" },
   { key: "salary_expectation", label: "Salary expectation per year", hint: "The agent states this only if you switch that on in a search" },

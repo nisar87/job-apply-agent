@@ -22,6 +22,9 @@ PROFILE_SCHEMA = {
         "email": {"type": "string"},
         "phone": {"type": "string"},
         "location": {"type": "string"},
+        "country": {"type": "string", "description": "ISO 3166-1 alpha-2 code (lower case) of the country the "
+                                                     "candidate lives in, if the CV shows it (city, address or "
+                                                     "phone prefix); otherwise empty"},
         "summary": {"type": "string"},
         "skills": {
             "type": "array",
@@ -60,6 +63,7 @@ PROFILE_SCHEMA = {
 }
 
 FACT_SHEET_FIELDS = [
+    "home_country",  # ISO code of where the candidate lives: remote jobs that cannot hire there are skipped
     "work_authorisation",  # {country code: "citizen" | "permit" | "needs_sponsorship"}
     "notice_period", "earliest_start", "salary_expectation", "salary_currency",
     "willing_to_relocate", "willing_to_travel", "languages", "phone", "interview_availability", "location",
@@ -237,6 +241,7 @@ def upload_cv(
     session.flush()
     cv.current_version_id = version.id
     session.flush()
+    prefill_fact_sheet(session, user_id, profile)
     audit.record(session, user_id=user_id, actor="user", tool="upload_cv", entity_id=cv.id,
                  input={"label": cv.label, "file": file_name}, result={"version": str(version.id)})
     return cv
@@ -278,8 +283,37 @@ def get_fact_sheet(session: Session, user_id: uuid.UUID) -> dict:
     return dict(row.data) if row else {}
 
 
+def prefill_fact_sheet(session: Session, user_id: uuid.UUID, profile: dict) -> list[str]:
+    """Fill fact sheet fields the CV already answers (home country, location, phone, languages), so the agent
+    can use them without the user typing them again. Only empty fields are filled; nothing is overwritten."""
+    from app.countries import normalize
+
+    langs = [" ".join(str(x) for x in (lang.get("name"), lang.get("level")) if x)
+             for lang in profile.get("languages") or [] if isinstance(lang, dict) and lang.get("name")]
+    found = {"home_country": normalize(profile.get("country") or "") or "", "location": profile.get("location") or "",
+             "phone": profile.get("phone") or "", "languages": ", ".join(langs)}
+    row = session.execute(select(FactSheet).where(FactSheet.user_id == user_id)).scalar_one_or_none()
+    data = dict(row.data) if row else {}
+    filled = [k for k, v in found.items() if v and not data.get(k)]
+    if not filled:
+        return []
+    data.update({k: found[k] for k in filled})
+    if row is None:
+        session.add(FactSheet(user_id=user_id, data=data))
+    else:
+        row.data = data
+    session.flush()
+    audit.record(session, user_id=user_id, actor="system", tool="prefill_fact_sheet", input={"fields": filled},
+                 reason="taken from the CV")
+    return filled
+
+
 def save_fact_sheet(session: Session, user_id: uuid.UUID, data: dict) -> dict:
     clean = {k: v for k, v in data.items() if k in FACT_SHEET_FIELDS}
+    if clean.get("home_country"):
+        from app.countries import normalize
+
+        clean["home_country"] = normalize(str(clean["home_country"])) or ""
     row = session.execute(select(FactSheet).where(FactSheet.user_id == user_id)).scalar_one_or_none()
     if row is None:
         row = FactSheet(user_id=user_id, data=clean)

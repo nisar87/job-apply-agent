@@ -175,6 +175,8 @@ def ingest(
         fields["salary_min"] = fields.get("salary_min") or raw.salary_min
     if raw.salary_max:
         fields["salary_max"] = fields.get("salary_max") or raw.salary_max
+    if raw.hiring_regions:
+        fields["hiring_regions"] = raw.hiring_regions
     contact = validate_contact(raw.contact_email or fields.get("contact_email"), text, mail_check)
     if contact is None:
         # The model may have missed an address that is plainly in the text.

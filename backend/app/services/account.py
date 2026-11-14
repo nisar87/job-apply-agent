@@ -32,7 +32,7 @@ from app.security import decrypt_secret
 
 log = logging.getLogger(__name__)
 URGENT_KINDS = {"escalation_urgent", "reconnect_mail", "send_unknown"}
-EMAIL_KINDS = URGENT_KINDS | {"escalation", "bounce", "draft_failed", "digest", "question"}
+EMAIL_KINDS = URGENT_KINDS | {"escalation", "bounce", "draft_failed", "digest", "question", "drafts_ready"}
 
 
 def deliver_notifications(session: Session, user_id: uuid.UUID, now: datetime | None = None) -> int:
@@ -60,13 +60,34 @@ def deliver_notifications(session: Session, user_id: uuid.UUID, now: datetime | 
     base = get_settings().frontend_url
     subject = to_send[0].title if len(to_send) == 1 else f"{len(to_send)} updates on your job applications"
     body = "\n\n".join(f"{n.title}\n{n.body}".strip() + (f"\n{base}{n.link}" if n.link else "") for n in to_send)
-    if not get_notifier().send(to, subject, body):
+    if not (get_notifier().send(to, subject, body) or _send_from_own_mailbox(session, user, to, subject, body)):
         return 0
     for n in to_send:
         n.emailed = True
         n.updated_at = now
     session.flush()
     return len(to_send)
+
+
+def _send_from_own_mailbox(session: Session, user: User, to: str, subject: str, body: str) -> bool:
+    """Without the product's own email service, a notice goes from the user's connected Gmail to their notice
+    address, so drafts and urgent replies still reach them. It goes only to the user's own address, never to
+    an employer, and the inbox sync ignores it (it is not in an application's thread)."""
+    from app.connectors.mail import MailAuthError, OutgoingMail, get_mail_provider
+    from app.services.applications import mail_account
+
+    if get_settings().smtp_host:
+        return False
+    account = mail_account(session, user.id)
+    if account is None:
+        return False
+    try:
+        get_mail_provider().send(account, OutgoingMail(to=to, subject=f"[Job Apply Agent] {subject}", body=body,
+                                                       from_name="Job Apply Agent"))
+    except (MailAuthError, httpx.HTTPError) as exc:
+        log.warning("notice from own mailbox failed: %s", type(exc).__name__)
+        return False
+    return True
 
 
 def export_data(session: Session, user_id: uuid.UUID) -> dict:

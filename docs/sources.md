@@ -9,6 +9,9 @@ A source is enabled only when its row is complete. Re-check monthly.
 | Greenhouse job boards | Public Job Board API per company | Published postings only | One request per company every 6 hours | Not yet checked at the source | Enabled when a company is in the directory |
 | Lever postings | Public postings API per company | Published postings only | Same | Not yet checked at the source | Enabled when a company is in the directory |
 | Personio XML feed | Public feed per company | Published postings only | Same | Not yet checked at the source | Enabled when a company is in the directory |
+| Remotive API | Public, no key | Link back to the job on Remotive and name Remotive as the source; no more than about 4 requests a day; jobs may not be resubmitted to other boards | Software category fetched once every 6 hours for all users (shared cache) | 15 Nov 2026 (legal notice in the API response) | Enabled |
+| Jobicy API v2 | Public, no key | Credit Jobicy with a link; applications go to the job's own URL | Latest 100 engineering jobs, once every 6 hours (shared cache) | 15 Nov 2026 (notice in the API response) | Enabled |
+| Himalayas API | Public, no key (a free key raises limits) | Use the application link unchanged; name Himalayas as the source; never pass jobs on to other boards, aggregators or Google Jobs; remove expired jobs | Search per keyword (up to 4), each cached 12 hours; data refreshes daily | 15 Nov 2026 (himalayas.app/api) | Enabled |
 | Recruitee | Per-company token required from 10 February 2027 | — | — | — | Not implemented |
 | Public job pages | Polite fetch of single pages | robots.txt obeyed; never logged in; blocks never bypassed | One request every 3 seconds per domain; 24-hour cache | — | Used only to complete a posting a source returned as a snippet, and for links a user pastes |
 | LinkedIn, Indeed and similar | — | Their terms forbid automation | — | — | Never automated |

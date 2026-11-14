@@ -1,5 +1,7 @@
 """Applications, drafts, skipped postings, dashboard, notifications, mail and manual runs."""
 
+import logging
+import threading
 import uuid
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlencode
@@ -22,7 +24,7 @@ from app.connectors import mail as mail_connector
 from app.connectors.fetcher import Fetcher, FetchRefused
 from app.connectors.sources import RawPosting
 from app.db import user_session
-from app.llm import SpendCapExceeded
+from app.llm import SpendCapExceeded, get_llm
 from app.models import (
     CV,
     Application,
@@ -42,7 +44,7 @@ from app.services import applications as app_service
 from app.services import postings as posting_service
 from app.services import rules
 from app.services.campaigns import get_config
-from app.tasks.locks import LockBusy, run_lock
+from app.tasks.locks import LockBusy, get_redis, run_lock
 
 router = APIRouter(prefix="/api", tags=["work"])
 
@@ -265,6 +267,13 @@ def run_now(campaign_id: uuid.UUID, kind: str = "prepare", user_id: uuid.UUID = 
     campaign = _own(session, Campaign, campaign_id)
     if kind not in ("discovery", "prepare", "dispatch"):
         raise HTTPException(422, "kind must be discovery, prepare or dispatch")
+    if get_settings().manual_runs_in_background:
+        # Behind a proxy with a short request limit (Firebase Hosting: 60 seconds) a long run would be cut
+        # off, so it runs after the response instead. The run itself is the same, with the same lock.
+        if get_redis().get(f"lock:{kind}:{user_id}"):
+            raise HTTPException(409, "A run of this kind is already in progress")
+        threading.Thread(target=_run_in_background, args=(user_id, campaign_id, kind), daemon=True).start()
+        return {"started": True, "kind": kind}
     try:
         with run_lock(user_id, kind):
             if kind == "discovery":
@@ -274,6 +283,24 @@ def run_now(campaign_id: uuid.UUID, kind: str = "prepare", user_id: uuid.UUID = 
             return agent_runs.dispatch_run(session, user_id)
     except LockBusy as exc:
         raise HTTPException(409, "A run of this kind is already in progress") from exc
+
+
+def _run_in_background(user_id: uuid.UUID, campaign_id: uuid.UUID, kind: str) -> None:
+    """A manual run in its own session; failures are recorded on the run like scheduled ones."""
+    try:
+        with run_lock(user_id, kind), user_session(user_id) as session:
+            campaign = session.get(Campaign, campaign_id)
+            llm = get_llm()
+            if kind == "discovery":
+                agent_runs.discovery_run(session, llm, campaign, fetcher=Fetcher())
+            elif kind == "prepare":
+                agent_runs.prepare_run(session, llm, campaign)
+            else:
+                agent_runs.dispatch_run(session, user_id)
+    except LockBusy:
+        pass
+    except Exception:  # noqa: BLE001 - logged; the run row already says it failed
+        logging.getLogger(__name__).exception("background %s run failed for %s", kind, campaign_id)
 
 
 # ---- Mail connection ----

@@ -1,0 +1,105 @@
+name: Deploy staging
+# Every push to main that passes CI goes live on the private staging site. Signs in to Google Cloud
+# without a stored key (Workload Identity Federation, limited to this repository's main branch).
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+env:
+  PROJECT: job-apply-agent-staging
+  REGION: europe-west1
+  DOMAIN: jaa-x7k2.nisarworks.com
+  REGISTRY: europe-west1-docker.pkg.dev/job-apply-agent-staging/jaa
+  SQL_CONN: job-apply-agent-staging:europe-west1:jaa-db
+  RUN_SA: jaa-run@job-apply-agent-staging.iam.gserviceaccount.com
+  BUCKET: job-apply-agent-staging-files
+  GOOGLE_CLIENT_ID: 947809586306-f44637cuoi2vd5h6dtlhcvncfhgi2ojf.apps.googleusercontent.com
+  SIGNUP_ALLOWLIST: nisar.3dcellular@gmail.com
+  SANDBOX_RECIPIENT: nisar_87@hotmail.com
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github/providers/job-apply-agent
+          service_account: jaa-deploy@job-apply-agent-staging.iam.gserviceaccount.com
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build and push images
+        run: |
+          gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
+          TAG="${GITHUB_SHA::12}"
+          docker build -t "$REGISTRY/api:$TAG" backend
+          docker build -t "$REGISTRY/web:$TAG" --build-arg NEXT_PUBLIC_API_URL="https://$DOMAIN" \
+            --build-arg NEXT_PUBLIC_HIDE_FROM_SEARCH=1 frontend
+          docker push "$REGISTRY/api:$TAG"
+          docker push "$REGISTRY/web:$TAG"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+
+      - name: Migrate the database
+        run: |
+          gcloud run jobs deploy jaa-migrate --image "$REGISTRY/api:$TAG" --region "$REGION" \
+            --service-account "$RUN_SA" --set-cloudsql-instances "$SQL_CONN" \
+            --set-secrets DATABASE_OWNER_URL=DATABASE_OWNER_URL:latest,DATABASE_URL=DATABASE_URL:latest \
+            --command python --args=-m,app.migrate --max-retries 0 --task-timeout 600
+          gcloud run jobs execute jaa-migrate --region "$REGION" --wait
+
+      - name: Deploy the API
+        run: |
+          gcloud run deploy jaa-api --image "$REGISTRY/api:$TAG" --region "$REGION" \
+            --service-account "$RUN_SA" --allow-unauthenticated --execution-environment gen2 \
+            --memory 2Gi --cpu 1 --no-cpu-throttling --min-instances 0 --max-instances 2 --timeout 1800 \
+            --set-cloudsql-instances "$SQL_CONN" \
+            --add-volume name=files,type=cloud-storage,bucket="$BUCKET" --add-volume-mount volume=files,mount-path=/data \
+            --set-env-vars "APP_ENV=staging,STORAGE_DIR=/data,REDIS_URL=postgres,TASKS_INLINE=true,LLM_PROVIDER=gemini,MAIL_PROVIDER=gmail,HIDE_FROM_SEARCH=true,MANUAL_RUNS_IN_BACKGROUND=true,FRONTEND_URL=https://$DOMAIN,GOOGLE_REDIRECT_URI=https://$DOMAIN/api/mail/google/callback,GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID,SANDBOX_RECIPIENT=$SANDBOX_RECIPIENT,SIGNUP_ALLOWLIST=$SIGNUP_ALLOWLIST" \
+            --set-secrets "DATABASE_URL=DATABASE_URL:latest,DATABASE_OWNER_URL=DATABASE_OWNER_URL:latest,SECRET_KEY=SECRET_KEY:latest,TOKEN_ENCRYPTION_KEY=TOKEN_ENCRYPTION_KEY:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest,SCHEDULER_TOKEN=SCHEDULER_TOKEN:latest"
+
+      - name: Deploy the website
+        run: |
+          gcloud run deploy jaa-web --image "$REGISTRY/web:$TAG" --region "$REGION" \
+            --allow-unauthenticated --memory 512Mi --min-instances 0 --max-instances 2 --port 8080
+
+      - name: Schedule background work
+        run: |
+          API_URL=$(gcloud run services describe jaa-api --region "$REGION" --format 'value(status.url)')
+          TOKEN=$(gcloud secrets versions access latest --secret SCHEDULER_TOKEN)
+          echo "::add-mask::$TOKEN"
+          schedule() {  # name, cron, job: recreated each time so the address and token stay current
+            gcloud scheduler jobs delete "$1" --location "$REGION" --quiet 2>/dev/null || true
+            gcloud scheduler jobs create http "$1" --location "$REGION" --schedule "$2" --time-zone "Asia/Karachi" \
+              --uri "$API_URL/api/system/run/$3" --http-method POST --headers "X-Scheduler-Token=$TOKEN" \
+              --attempt-deadline 1800s --quiet > /dev/null
+          }
+          schedule jaa-tick "*/5 * * * *" tick
+          schedule jaa-allocate "10 0 * * *" allocate
+          schedule jaa-renew-watches "30 3 * * *" renew-watches
+          schedule jaa-digest "0 9 * * 1" digest
+
+      - name: Publish the site
+        run: npx --yes firebase-tools@14 deploy --only hosting --project "$PROJECT" --non-interactive
+        working-directory: deploy/staging
+
+      - name: Check the live site
+        run: |
+          for url in "https://$PROJECT.web.app/api/health" "https://$DOMAIN/api/health"; do
+            echo "$url: $(curl -s --max-time 30 "$url" || echo unreachable)"
+          done
+          curl -sf --max-time 60 "https://$PROJECT.web.app/api/health" | grep -q '"ok":true'

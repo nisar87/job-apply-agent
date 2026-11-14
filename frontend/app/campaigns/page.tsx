@@ -28,6 +28,7 @@ function Editor({ campaign, onSaved }: { campaign: Campaign; onSaved: () => void
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
   const [running, setRunning] = useState("");
+  const [note, setNote] = useState("");
   const set = <K extends keyof CampaignConfig>(key: K, value: CampaignConfig[K]) => setC((old) => ({ ...old, [key]: value }));
 
   async function save(extra: Record<string, unknown> = {}) {
@@ -57,7 +58,8 @@ function Editor({ campaign, onSaved }: { campaign: Campaign; onSaved: () => void
     setRunning(kind);
     setError("");
     try {
-      await api(`/api/campaigns/${campaign.id}/run?kind=${kind}`, { method: "POST" });
+      const out = await api<{ started?: boolean }>(`/api/campaigns/${campaign.id}/run?kind=${kind}`, { method: "POST" });
+      if (out?.started) setNote(kind === "discovery" ? "Looking for jobs. New postings appear in a few minutes." : "Writing drafts. They appear under Drafts in a few minutes.");
       onSaved();
     } catch (e) {
       setError(errorText(e));
@@ -135,6 +137,7 @@ function Editor({ campaign, onSaved }: { campaign: Campaign; onSaved: () => void
       <div className="mt-6 flex flex-wrap items-center gap-3">
         <button className="btn" onClick={() => save()}>Save changes</button>
         {saved && <span className="text-sm text-sent">Saved</span>}
+        {note && <span className="text-sm text-slate">{note}</span>}
         <span className="ml-auto flex flex-wrap gap-2">
           <button className="btn btn-quiet" disabled={!!running} onClick={() => run("discovery")}>{running === "discovery" ? "Looking…" : "Look for jobs now"}</button>
           <button className="btn btn-quiet" disabled={!!running} onClick={() => run("prepare")}>{running === "prepare" ? "Writing…" : "Write drafts now"}</button>

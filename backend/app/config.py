@@ -59,6 +59,15 @@ class Settings(BaseSettings):
     browser_executable: str = ""
     form_auto_submit_after: int = 5  # clean reviews per hiring system before automatic submission is offered
 
+    # A private deployment (staging): only these addresses may sign up (comma separated; empty = anyone),
+    # and search engines are told not to index anything.
+    signup_allowlist: str = ""
+    hide_from_search: bool = False
+    # Run "Look for jobs now" and "Write drafts now" after the response (behind a proxy with a short request limit).
+    manual_runs_in_background: bool = False
+    # Shared secret Cloud Scheduler sends to /api/system/run/{job} when no Celery worker runs.
+    scheduler_token: str = ""
+
     # Agent limits
     agent_mode: str = "llm"  # llm | playbook
     agent_max_steps: int = 40
@@ -74,6 +83,10 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.app_env == "production"
+
+    def may_sign_up(self, email: str) -> bool:
+        allowed = {e.strip().lower() for e in self.signup_allowlist.split(",") if e.strip()}
+        return not allowed or email.strip().lower() in allowed
 
 
 @lru_cache

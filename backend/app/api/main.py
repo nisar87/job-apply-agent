@@ -1,9 +1,11 @@
 """FastAPI application."""
 
+import hmac
+import importlib
 import logging
 import uuid
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
@@ -35,6 +37,8 @@ async def security_headers(request, call_next):
     response.headers.setdefault("Cache-Control", "no-store")
     if get_settings().is_production:
         response.headers.setdefault("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+    if get_settings().hide_from_search:
+        response.headers.setdefault("X-Robots-Tag", "noindex, nofollow, noarchive")
     return response
 
 
@@ -60,6 +64,28 @@ def health():
         status["redis"] = f"error: {type(exc).__name__}"
     status["ok"] = all(v == "ok" for k, v in status.items())
     return status
+
+
+SCHEDULED_JOBS = {
+    "tick": ("app.tasks.scheduler", "tick"),                # every 5 minutes
+    "allocate": ("app.tasks.scheduler", "allocate_places"),  # once a day
+    "renew-watches": ("app.services.inbox", "renew_watches"),  # once a day
+    "digest": ("app.services.digest", "send_all"),          # once a week
+}
+
+
+@app.post("/api/system/run/{job}")
+def run_scheduled_job(job: str, x_scheduler_token: str = Header(default="")):
+    """Scheduled work for deployments without a Celery worker: Cloud Scheduler calls this with the
+    shared token. Each job is safe to repeat (runs are locked per user, sends are idempotent)."""
+    token = get_settings().scheduler_token
+    if not token or not hmac.compare_digest(x_scheduler_token, token):
+        raise HTTPException(403, "Not allowed")
+    if job not in SCHEDULED_JOBS:
+        raise HTTPException(404, "Unknown job")
+    module, name = SCHEDULED_JOBS[job]
+    result = getattr(importlib.import_module(module), name)()
+    return {"job": job, "result": result}
 
 
 @app.post("/api/system/ping-task")

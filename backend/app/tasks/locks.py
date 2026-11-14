@@ -9,13 +9,20 @@ import redis
 
 from app.config import get_settings
 
-_client: redis.Redis | None = None
+_client = None
 
 
 def get_redis() -> redis.Redis:
+    """The Redis client, or the Postgres stand-in when REDIS_URL is "postgres" (see app/kv.py)."""
     global _client
     if _client is None:
-        _client = redis.Redis.from_url(get_settings().redis_url, decode_responses=True)
+        url = get_settings().redis_url
+        if url.strip().lower() in ("postgres", "postgresql", "db"):
+            from app.kv import PostgresKV
+
+            _client = PostgresKV()
+        else:
+            _client = redis.Redis.from_url(url, decode_responses=True)
     return _client
 
 

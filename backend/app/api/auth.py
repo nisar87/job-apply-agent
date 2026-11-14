@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app import audit
 from app.api.deps import current_user_id, db
+from app.config import get_settings
 from app.db import system_session
 from app.models import FactSheet, User
 from app.security import create_access_token, hash_password, verify_password
@@ -61,6 +62,8 @@ class UserPatch(BaseModel):
 @router.post("/signup", response_model=TokenOut, status_code=201)
 def signup(body: SignupIn):
     email = body.email.lower()
+    if not get_settings().may_sign_up(email):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Sign-up is by invitation only")
     with system_session() as session:
         if session.execute(select(User).where(User.email == email)).scalar_one_or_none():
             raise HTTPException(status.HTTP_409_CONFLICT, "An account with this email already exists")

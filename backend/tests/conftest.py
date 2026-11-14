@@ -52,6 +52,7 @@ def make_user(client, email="a@example.com", password="correct horse battery", n
     token = r.json()["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
     me = client.get("/api/auth/me", headers=headers).json()
+    assert "id" in me, me
     return headers, me["id"]
 
 

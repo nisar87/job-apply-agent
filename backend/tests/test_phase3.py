@@ -208,8 +208,12 @@ def test_form_endpoints_are_isolated(client, llm):
 
 # ---- A real browser against local pages ----
 
-CHROME = "/usr/bin/google-chrome"
-needs_chrome = pytest.mark.skipif(not os.path.exists(CHROME), reason="no local Chrome")
+CHROME = next((p for p in (
+    os.environ.get("TEST_CHROME", ""), "/usr/bin/google-chrome",
+    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+) if p and os.path.exists(p)), "")
+needs_chrome = pytest.mark.skipif(not CHROME, reason="no local Chrome")
 
 
 @pytest.fixture

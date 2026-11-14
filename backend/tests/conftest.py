@@ -1,8 +1,10 @@
 import os
 
 os.environ.setdefault("APP_ENV", "test")
-os.environ["DATABASE_URL"] = "postgresql+psycopg://jobagent_app:app@localhost:5432/jobagent_test"
-os.environ["DATABASE_OWNER_URL"] = "postgresql+psycopg://jobagent_owner:owner@localhost:5432/jobagent_test"
+os.environ["DATABASE_URL"] = os.environ.get(
+    "TEST_DATABASE_URL", "postgresql+psycopg://jobagent_app:app@localhost:5432/jobagent_test")
+os.environ["DATABASE_OWNER_URL"] = os.environ.get(
+    "TEST_DATABASE_OWNER_URL", "postgresql+psycopg://jobagent_owner:owner@localhost:5432/jobagent_test")
 os.environ["REDIS_URL"] = os.environ.get("TEST_REDIS_URL", "redis://localhost:6379/9")
 os.environ["LLM_PROVIDER"] = "fake"
 os.environ["MAIL_PROVIDER"] = "fake"

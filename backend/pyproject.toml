@@ -6,6 +6,7 @@ dependencies = [
   "fastapi", "uvicorn[standard]", "sqlalchemy>=2", "psycopg[binary]", "alembic",
   "pydantic-settings", "pydantic[email]", "argon2-cffi", "pyjwt", "cryptography",
   "celery", "redis", "httpx", "google-genai", "python-multipart", "pypdf", "python-docx",
+  "tzdata",  # time zones on Windows, which ships none
 ]
 [project.optional-dependencies]
 dev = ["pytest", "ruff", "playwright"]

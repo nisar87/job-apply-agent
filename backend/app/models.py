@@ -355,6 +355,17 @@ class PostingSlot(Base):
     __table_args__ = (UniqueConstraint("posting_id", "day"),)
 
 
+class BlockRequest(Base, TimestampMixin):
+    """An employer asking not to be contacted. Reviewed by the operator before it takes effect."""
+
+    __tablename__ = "block_requests"
+    id: Mapped[uuid.UUID] = pk()
+    contact_email: Mapped[str] = mapped_column(String(320))
+    company: Mapped[str] = mapped_column(String(300), default="")
+    message: Mapped[str] = mapped_column(Text, default="")
+    state: Mapped[str] = mapped_column(String(16), default="open")  # open | approved | declined
+
+
 # Tables protected by row-level security on user_id.
 USER_TABLES = [
     "mail_accounts", "cvs", "cv_versions", "fact_sheets", "campaigns", "preferences", "matches",
@@ -362,4 +373,4 @@ USER_TABLES = [
     "usage_daily",
 ]
 # Shared tables: readable by the app role, no per-user rows.
-SHARED_TABLES = ["companies", "postings", "global_blocks", "posting_slots"]
+SHARED_TABLES = ["companies", "postings", "global_blocks", "posting_slots", "block_requests"]

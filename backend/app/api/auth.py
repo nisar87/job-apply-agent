@@ -17,6 +17,7 @@ from app.api.deps import current_user_id, db
 from app.db import system_session
 from app.models import FactSheet, User
 from app.security import create_access_token, hash_password, verify_password
+from app.tasks.locks import get_redis
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -73,10 +74,18 @@ def signup(body: SignupIn):
 
 @router.post("/login", response_model=TokenOut)
 def login(body: LoginIn):
+    # Ten wrong passwords for one address lock sign-in for 15 minutes.
+    key = f"rl:login:{body.email.lower()}"
+    r = get_redis()
+    if int(r.get(key) or 0) >= 10:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many attempts. Try again in 15 minutes.")
     with system_session() as session:
         user = session.execute(select(User).where(User.email == body.email.lower())).scalar_one_or_none()
         if not user or user.status == "deleted" or not verify_password(body.password, user.password_hash):
+            if r.incr(key) == 1:
+                r.expire(key, 900)
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Wrong email or password")
+        r.delete(key)
         return TokenOut(access_token=create_access_token(user.id))
 
 

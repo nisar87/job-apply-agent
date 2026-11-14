@@ -234,6 +234,7 @@ def demo_postings() -> list[RawPosting]:
         ("Data Engineer", "Salzach Analytics", "python, sql, airflow", "hr@salzach.example"),
         ("Platform Engineer", "Wienzeile Digital", "python, docker", ""),
         ("SAP Consultant", "Grazer Beratung KG", "sap, abap", "jobs@grazer.example"),
+        ("Python Developer, Core Banking", "Innbank Systems", "python, cobol, mainframe", "jobs@innbank.example"),
     ]
     return [RawPosting(source="demo", source_id=f"demo-{i}", url=f"https://example.com/demo-job-{i}", title=t, company=c,
                        description=f"{t} at {c}. Remote within Austria. Full-time.\nRequirements: {r}\n"

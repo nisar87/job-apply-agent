@@ -7,7 +7,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
-from app.api import auth, core, replies, work
+from app.api import account, auth, core, replies, work
 from app.api.deps import current_user_id
 from app.config import get_settings
 from app.db import system_session
@@ -24,10 +24,25 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("Cache-Control", "no-store")
+    if get_settings().is_production:
+        response.headers.setdefault("Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+    return response
+
+
 app.include_router(auth.router)
 app.include_router(core.router)
 app.include_router(work.router)
 app.include_router(replies.router)
+app.include_router(account.router)
 
 
 @app.get("/api/health")

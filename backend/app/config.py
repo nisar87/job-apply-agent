@@ -45,6 +45,13 @@ class Settings(BaseSettings):
     adzuna_app_id: str = ""
     adzuna_app_key: str = ""
 
+    # The product's own email (escalations, digest, account notices). Never used for applications.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    notify_from: str = "Job Apply Agent <no-reply@example.com>"
+
     # Safety: outside production every outgoing application is rewritten to this address.
     sandbox_recipient: str = ""
 

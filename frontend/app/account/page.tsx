@@ -100,6 +100,26 @@ export default function AccountPage() {
         <input className="field max-w-xs" value={blockValue} onChange={(e) => setBlockValue(e.target.value)} placeholder="Acme GmbH" required aria-label="Value" />
         <button className="btn btn-quiet">Add</button>
       </form>
+
+      <h2 className="mt-10 text-xl">Your data</h2>
+      <p className="mt-1 max-w-prose text-sm text-slate">Download everything stored about you, or delete your account. Deleting removes your CVs, applications and messages here and withdraws this app&apos;s access to your Gmail. It cannot be undone.</p>
+      <div className="mt-3 flex flex-wrap items-end gap-3">
+        <button className="btn btn-quiet" onClick={() => wrap(async () => {
+          const data = await api("/api/account/export");
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+          a.download = "job-apply-agent-data.json";
+          a.click();
+        }, () => undefined)}>Download my data</button>
+        <form className="flex flex-wrap items-end gap-2" onSubmit={(e) => {
+          e.preventDefault();
+          const password = new FormData(e.currentTarget).get("password");
+          wrap(() => api("/api/account/delete", { method: "POST", json: { password } }), () => { window.localStorage.removeItem("jaa_token"); window.location.replace("/signup"); });
+        }}>
+          <label className="text-sm">Password, to confirm deletion<input className="field mt-1" type="password" name="password" required /></label>
+          <button className="btn btn-danger">Delete my account</button>
+        </form>
+      </div>
     </Shell>
   );
 }

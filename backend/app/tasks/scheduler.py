@@ -98,6 +98,9 @@ def inbox_user(user_id: uuid.UUID, now: datetime | None = None) -> dict:
             result = inbox.sync_inbox(s, llm, user_id, now)
             result.update(inbox.followup_run(s, llm, user_id, now))
             result["reminders"] = inbox.renotify_urgent(s, user_id, now)
+            from app.services import account
+
+            result["emailed"] = account.deliver_notifications(s, user_id, now)
             return result
     except LockBusy:
         return {"busy": True}

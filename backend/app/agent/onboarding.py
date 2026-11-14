@@ -42,6 +42,18 @@ ONBOARDING_SCHEMA = {
                 "follow_up_after_days": {"type": "integer"},
             },
         },
+        "evidence": {
+            "type": "array",
+            "description": "One entry for every setting present in config: the user's own words that state it",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "setting": {"type": "string", "description": "The key in config"},
+                    "user_words": {"type": "string", "description": "Copied word for word from a user message"},
+                },
+                "required": ["setting", "user_words"],
+            },
+        },
         "preferences": {"type": "array", "items": {"type": "string"},
                         "description": "Standing instructions that are not one of the settings above"},
         "escalation_email": {"type": "string"},
@@ -51,10 +63,50 @@ ONBOARDING_SCHEMA = {
 }
 
 SYSTEM = """You set up a job application agent for one user. Read the conversation and extract the settings \
-the user has stated. Do not invent values the user did not give; defaults fill the rest. If an instruction is \
-vague or contradicts another, ask exactly one short question. Otherwise confirm what you understood in two or \
-three sentences and say what is still missing. Never promise something the product cannot do: it applies by \
-email from the user's own Gmail, checks replies, and never applies to the same job twice."""
+the user has stated.
+
+Settings: put a key into config only if the user stated it. Leave every other key out entirely; defaults fill \
+the rest, and a value the user did not give is an error. For each key you do put into config, add an evidence \
+entry quoting the user's words for it, copied exactly. A setting without a matching quote is discarded. \
+"Skip agencies" or "no recruiters" means exclude_agencies true. A cooldown stated for companies is \
+company_cooldown_days; one stated for contacts or HR addresses is contact_cooldown_days.
+
+Reply: if an instruction is vague or contradicts another, ask exactly one short question. Otherwise confirm \
+what you understood in two or three sentences. Do not say anything about what is still missing on the account \
+(CV, mailbox, and so on): the product adds that itself. Never promise something the product cannot do: it \
+applies by email from the user's own Gmail, checks replies, and never applies to the same job twice."""
+
+MISSING_TEXT = {
+    "cv": "upload a CV", "mail": "connect your Gmail", "escalation_email": "give an address for important replies",
+    "fact_sheet": "fill in the fact sheet",
+}
+_WINDOW_KEYS = {"send_window_start", "send_window_end"}
+
+
+def _plain(text: str) -> str:
+    return " ".join("".join(ch.lower() if ch.isalnum() else " " for ch in str(text)).split())
+
+
+def stated_settings(patch: dict, evidence: list, history: list[dict]) -> tuple[dict, list[str]]:
+    """Keep only the settings the user really stated. The model must quote the user for each one,
+    and the quote must be found in what the user wrote; anything else is dropped and named."""
+    said = _plain(" ".join(str(m.get("text", "")) for m in history if m.get("role") == "user"))
+    quoted: set[str] = set()
+    for item in evidence or []:
+        words = _plain(item.get("user_words", "")) if isinstance(item, dict) else ""
+        if len(words) >= 2 and words in said:
+            quoted.add(str(item.get("setting", "")))
+    if quoted & (_WINDOW_KEYS | {"send_window"}):
+        quoted |= _WINDOW_KEYS
+    kept, dropped = {}, []
+    for key, value in (patch or {}).items():
+        if value in (None, "", []):
+            continue
+        if key in quoted:
+            kept[key] = value
+        else:
+            dropped.append(key)
+    return kept, dropped
 
 
 def setup_status(session: Session, user_id: uuid.UUID) -> dict:
@@ -110,10 +162,10 @@ def onboarding_turn(session: Session, llm: LLMClient, user_id: uuid.UUID, histor
     status = setup_status(session, user_id)
     prompt = (
         f"Conversation so far:\n{convo}\n\nSettings understood so far: {draft or {}}\n"
-        f"Still missing on the account: {status['missing']}\n"
     )
     data = llm.generate_structured(prompt, ONBOARDING_SCHEMA, system=SYSTEM, tier="strong", task="onboarding").data or {}
-    config, problems = merge_config(draft or {}, data.get("config") or {})
+    patch, _dropped = stated_settings(data.get("config") or {}, data.get("evidence") or [], history)
+    config, problems = merge_config(draft or {}, patch)
     reply = data.get("reply") or "Tell me what kind of jobs you are looking for."
     if problems:
         reply += " One thing needs fixing: " + " ".join(problems)
@@ -123,6 +175,8 @@ def onboarding_turn(session: Session, llm: LLMClient, user_id: uuid.UUID, histor
         user.escalation_email = escalation
         session.flush()
         status = setup_status(session, user_id)
+    if status["missing"] and not data.get("open_question", False):
+        reply += " Before I can start, please " + ", ".join(MISSING_TEXT.get(m, m) for m in status["missing"]) + "."
     return {
         "reply": reply, "config": config, "campaign_name": data.get("campaign_name") or "My job search",
         "preferences": [p for p in (data.get("preferences") or []) if str(p).strip()][:10],

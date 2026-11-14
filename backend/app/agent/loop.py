@@ -46,6 +46,7 @@ def run_llm_agent(ctx: AgentContext, max_steps: int | None = None) -> dict:
     specs = [spec for _, spec in tools.REGISTRY.values()]
     messages: list[dict] = [{"role": "user", "text": _context_message(ctx)}]
     steps, started, stop_reason = 0, time.monotonic(), "model stopped"
+    scored = drafted = 0
     while steps < max_steps:
         if time.monotonic() - started > s.agent_run_timeout_seconds:
             stop_reason = "time limit"
@@ -61,6 +62,10 @@ def run_llm_agent(ctx: AgentContext, max_steps: int | None = None) -> dict:
         for call in result.tool_calls:
             steps += 1
             output = tools.call_tool(ctx, call.name, call.args)
+            if call.name == "score_job" and "decision" in output:
+                scored += 1
+            if call.name == "draft_application" and output.get("status") in ("awaiting_approval", "queued", "manual_apply"):
+                drafted += 1
             messages.append({"role": "tool", "name": call.name, "result": output})
             if ctx.finished or steps >= max_steps:
                 break
@@ -71,7 +76,7 @@ def run_llm_agent(ctx: AgentContext, max_steps: int | None = None) -> dict:
         stop_reason = "step limit"
     if steps >= max_steps and stop_reason == "model stopped":
         stop_reason = "step limit"
-    return {"steps": steps, "stop_reason": stop_reason, "summary": ctx.finished or ""}
+    return {"steps": steps, "stop_reason": stop_reason, "summary": ctx.finished or f"scored {scored}, drafted {drafted}"}
 
 
 def run_playbook(ctx: AgentContext, max_steps: int | None = None) -> dict:

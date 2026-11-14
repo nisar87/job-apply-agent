@@ -225,14 +225,27 @@ def test_onboarding_extracts_settings_and_refuses_invalid(client, llm):
         "reply": "Got it: remote backend jobs in Austria, 10 a day.", "campaign_name": "Austria remote",
         "config": {"keywords": ["backend"], "countries": ["AT"], "work_modes": ["remote"], "daily_quota": 10,
                    "max_posting_age_days": 7, "match_threshold": 85},
+        "evidence": [{"setting": "keywords", "user_words": "backend jobs"}, {"setting": "countries", "user_words": "in Austria"},
+                     {"setting": "work_modes", "user_words": "remote"}, {"setting": "daily_quota", "user_words": "10 Remote"},
+                     {"setting": "max_posting_age_days", "user_words": "posted this week"},   # the user never said this
+                     ],                                                                       # and nothing for match_threshold
         "preferences": ["Skip recruitment agencies when the company is not named"], "open_question": False})
     out = client.post("/api/setup/turn", headers=w.headers,
                       json={"history": [{"role": "user", "text": "Apply to 10 remote backend jobs in Austria daily"}]}).json()
     assert out["config"]["countries"] == ["at"] and out["config"]["work_modes"] == ["remote"] and out["ready"] is True
-    assert out["status"]["missing"] == []
+    assert out["status"]["missing"] == [] and out["config"]["daily_quota"] == 10
+    # Settings the model cannot back with the user's own words are dropped: a made-up threshold or age stays at the default.
+    llm.on("onboarding", lambda p, s: {"reply": "OK.", "config": {"match_threshold": 70, "max_posting_age_days": 3, "exclude_agencies": True},
+                                       "evidence": [{"setting": "max_posting_age_days", "user_words": "three days"},
+                                                    {"setting": "exclude_agencies", "user_words": "No recruiters!"}]})
+    kept = client.post("/api/setup/turn", headers=w.headers,
+                       json={"history": [{"role": "user", "text": "Python jobs please. No recruiters."}]}).json()["config"]
+    assert (kept["match_threshold"], kept["max_posting_age_days"], kept["exclude_agencies"]) == (85, 7, True)
     # An impossible combination is dropped and explained instead of producing a broken campaign.
     llm.on("onboarding", lambda p, s: {"reply": "OK.", "config": {"daily_quota": 30, "send_window_start": "09:00",
-                                                                  "send_window_end": "10:00"}})
+                                                                  "send_window_end": "10:00"},
+                                       "evidence": [{"setting": "daily_quota", "user_words": "30 a day"},
+                                                    {"setting": "send_window", "user_words": "in one hour"}]})
     out = client.post("/api/setup/turn", headers=w.headers, json={"history": [{"role": "user", "text": "30 a day in one hour"}],
                                                                   "draft": out["config"]}).json()
     assert out["config"]["daily_quota"] == 10 and "Widen the window" in out["reply"] and out["ready"] is False
@@ -244,3 +257,27 @@ def test_setup_status_lists_what_is_missing(client, user, llm):
     assert set(status["missing"]) == {"cv", "mail", "escalation_email", "fact_sheet"}
     merged, problems = onboarding.merge_config({}, {"match_threshold": 5})
     assert problems and merged["match_threshold"] == 85
+
+
+def test_candidates_failing_code_filters_cost_no_model_call_and_no_step(client, llm):
+    from app.agent import tools
+    from app.agent.tools import AgentContext
+    from app.models import Match, Posting, User
+
+    w = make_world(client, llm, config={"work_modes": ["remote"]})
+    discovered(w, llm)
+    with w.session() as s:
+        postings = s.execute(select(Posting)).scalars().all()
+        for p in postings[:2]:
+            p.fields = {**(p.fields or {}), "work_mode": "onsite"}
+        s.flush()
+        before = len(llm.calls)
+        campaign = campaign_of(s, w)
+        ctx = AgentContext(session=s, llm=llm, campaign=campaign, user=s.get(User, campaign.user_id), run_id=None, now=NOW)
+        out = tools.list_candidates(ctx)
+        assert out["filtered_out_by_your_settings"] == 2 and len(out["candidates"]) == len(postings) - 2
+        assert len(llm.calls) == before
+        skipped = s.execute(select(Match).where(Match.decision == "skip")).scalars().all()
+        assert len(skipped) == 2 and all("work mode is onsite" in m.reason for m in skipped)
+        # A second listing does not offer or re-filter them.
+        assert tools.list_candidates(ctx)["filtered_out_by_your_settings"] == 0

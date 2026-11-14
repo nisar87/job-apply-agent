@@ -82,13 +82,25 @@ def list_candidates(ctx: AgentContext, limit: int = 30) -> dict:
     if config.keywords:
         kws = [k.lower() for k in config.keywords]
         pool = [p for p in pool if any(k in f"{p.title} {p.description}".lower() for k in kws)] or pool
-    ranked = matching.prerank(ctx.session, ctx.user.id, pool, limit=max(1, min(int(limit or 30), 30)))
+    # Code-only filters first: postings that fail them are recorded as skipped without a model call
+    # and without spending one of the run's steps.
+    facts, passing, filtered = cv_service.get_fact_sheet(ctx.session, ctx.user.id), [], 0
+    for p in pool:
+        skipped = matching.evaluate(ctx.session, ctx.llm, ctx.campaign, config, p, facts, [], use_model=False)
+        if skipped is None:
+            passing.append(p)
+        else:
+            filtered += 1
+    if filtered:
+        audit.record(ctx.session, user_id=ctx.user.id, actor="agent", tool="filter_candidates", run_id=ctx.run_id,
+                     entity_id=ctx.campaign.id, result={"filtered_out": filtered, "remaining": len(passing)})
+    ranked = matching.prerank(ctx.session, ctx.user.id, passing, limit=max(1, min(int(limit or 30), 30)))
     out = []
     for p in ranked:
         company = company_of(ctx.session, p)
         out.append({"posting_id": str(p.id), "title": p.title, "company": company.name if company else "",
                     "route": p.apply_route})
-    return {"candidates": out}
+    return {"candidates": out, "filtered_out_by_your_settings": filtered}
 
 
 def score_job(ctx: AgentContext, posting_id: str) -> dict:

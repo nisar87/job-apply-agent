@@ -111,7 +111,9 @@ def demo_llm() -> FakeLLM:
         reply = ("Here is what I understood: " + ", ".join(f"{k.replace('_', ' ')} {v}" for k, v in config.items()) + "."
                  if config else "Tell me which roles, where, and how many applications a day.")
         return {"reply": reply + " (Demo mode: connect Gemini for a real conversation.)", "campaign_name": "My job search",
-                "config": config, "preferences": [], "open_question": not config}
+                "config": config, "preferences": [], "open_question": not config,
+                # The demo reader works by pattern, so it vouches for its settings with the user's opening words.
+                "evidence": [{"setting": k, "user_words": " ".join(said.split()[:2])} for k in config]}
 
     fake.on("cv_parse", cv_parse)
     fake.on("posting_extract", posting_extract)

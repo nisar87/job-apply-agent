@@ -216,9 +216,13 @@ def choose_cv(scored: list[dict], threshold: float) -> dict | None:
 
 def evaluate(
     session: Session, llm: LLMClient, campaign: Campaign, config: CampaignConfig, posting: Posting,
-    fact_sheet: dict, preferences: list[str],
-) -> Match:
-    """Filter and score one posting for one campaign; stores and returns the match."""
+    fact_sheet: dict, preferences: list[str], use_model: bool = True,
+) -> Match | None:
+    """Filter and score one posting for one campaign; stores and returns the match.
+
+    With use_model=False only the code-only filters run: a posting that fails them is stored
+    as skipped, and one that passes returns None and stays unevaluated. This costs nothing,
+    so it is run over the whole pool before the model sees any candidate."""
     existing = session.execute(
         select(Match).where(Match.campaign_id == campaign.id, Match.posting_id == posting.id)
     ).scalar_one_or_none()
@@ -232,6 +236,8 @@ def evaluate(
         session.add(match)
         session.flush()
         return match
+    if not use_model:
+        return None
     candidates = scoring_set(session, campaign.user_id, posting)
     if not candidates:
         match.decision, match.reason = "skip", "no CV uploaded"

@@ -52,6 +52,8 @@ def main() -> int:
 
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpx2").setLevel(logging.WARNING)
+    logging.getLogger("google_genai").setLevel(logging.WARNING)
+    sys.stdout.reconfigure(line_buffering=True)
     s = get_settings()
     if s.mail_provider != "fake":
         print("Refusing to run: set MAIL_PROVIDER=fake so nothing can be sent to a real employer.")

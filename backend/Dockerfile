@@ -6,7 +6,9 @@ COPY app ./app
 COPY migrations ./migrations
 # WITH_BROWSER=1 adds Chromium for web application forms (phase 3); 0 gives a smaller image without them.
 ARG WITH_BROWSER=1
+# Playwright's installer runs a bundled Node, which needs libatomic1 (not in the slim image).
 RUN if [ "$WITH_BROWSER" = "1" ]; then \
+      apt-get update && apt-get install -y --no-install-recommends libatomic1 && rm -rf /var/lib/apt/lists/* && \
       pip install ".[forms]" && python -m playwright install --with-deps chromium; \
     else pip install .; fi
 # API:        uvicorn app.api.main:app --host 0.0.0.0 --port $PORT

@@ -1,23 +1,88 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Link from "next/link";
 import Shell from "@/components/Shell";
-import { api } from "@/lib/api";
+import { ErrorNote, useLoad } from "@/components/ui";
 
-type Health = { ok: boolean; api: string; database: string; redis: string };
+type Dash = {
+  today: { sent: number; quota: number; drafts_waiting: number; queued: number; needs_attention: number; manual_apply: number };
+  week: { evaluated: number; matched: number; applied: number; replied: number; interviews: number; rejections: number };
+  campaigns: { id: string; name: string; state: string }[];
+};
+type Setup = { missing: string[] };
 
-export default function Home() {
-  const [health, setHealth] = useState<Health | null>(null);
+const MISSING: Record<string, { text: string; href: string }> = {
+  cv: { text: "Upload a CV", href: "/cvs" },
+  mail: { text: "Connect your Gmail account", href: "/account" },
+  escalation_email: { text: "Say where urgent replies should be sent", href: "/account" },
+  fact_sheet: { text: "Fill in your fact sheet", href: "/cvs" },
+};
 
-  useEffect(() => {
-    api<Health>("/api/health").then(setHealth).catch(() => setHealth(null));
-  }, []);
+function Figure({ n, label, href }: { n: number | string; label: string; href?: string }) {
+  const inner = (
+    <>
+      <span className="letter block text-4xl">{n}</span>
+      <span className="text-sm text-slate">{label}</span>
+    </>
+  );
+  return href ? <Link href={href} className="block hover:underline">{inner}</Link> : <div>{inner}</div>;
+}
 
+export default function Today() {
+  const dash = useLoad<Dash>("/api/dashboard");
+  const setup = useLoad<Setup>("/api/setup/status");
+  const d = dash.data;
   return (
     <Shell title="Today">
-      <p className="text-sm text-slate">
-        {health ? (health.ok ? "All services are running." : "A service is not responding. Check the server.") : "Checking services…"}
-      </p>
+      <ErrorNote message={dash.error} />
+      {setup.data && setup.data.missing.length > 0 && (
+        <section className="mb-8 border-l-4 border-waiting bg-sheet px-4 py-3 text-sm">
+          <p className="font-semibold">Finish setting up before the agent can apply</p>
+          <ul className="mt-1 list-disc pl-5">
+            {setup.data.missing.map((m) => (
+              <li key={m}><Link className="underline" href={MISSING[m]?.href || "/setup"}>{MISSING[m]?.text || m}</Link></li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {d && (
+        <>
+          <section className="grid grid-cols-2 gap-6 border-b border-rule pb-8 sm:grid-cols-4">
+            <Figure n={`${d.today.sent} of ${d.today.quota}`} label="sent today" href="/applications?status=sent" />
+            <Figure n={d.today.drafts_waiting} label="drafts waiting for you" href="/drafts" />
+            <Figure n={d.today.queued} label="approved, going out" href="/applications?status=queued" />
+            <Figure n={d.today.needs_attention} label="need attention" href="/applications?status=failed" />
+          </section>
+          <h2 className="mt-8 text-xl">Last seven days</h2>
+          <section className="mt-4 grid grid-cols-2 gap-6 sm:grid-cols-6">
+            <Figure n={d.week.evaluated} label="postings checked" href="/applications?tab=skipped" />
+            <Figure n={d.week.matched} label="good matches" />
+            <Figure n={d.week.applied} label="applications sent" href="/applications" />
+            <Figure n={d.week.replied} label="replies" href="/inbox" />
+            <Figure n={d.week.interviews} label="interviews" href="/applications?status=interview" />
+            <Figure n={d.week.rejections} label="rejections" href="/applications?status=rejected" />
+          </section>
+          {d.today.manual_apply > 0 && (
+            <p className="mt-8 text-sm">
+              {d.today.manual_apply} good {d.today.manual_apply === 1 ? "match accepts" : "matches accept"} applications only through a web form.{" "}
+              <Link className="underline" href="/applications?tab=manual">Apply by hand</Link>
+            </p>
+          )}
+          <h2 className="mt-8 text-xl">Searches</h2>
+          {d.campaigns.length === 0 ? (
+            <p className="mt-2 text-sm">No search yet. <Link className="underline" href="/setup">Describe the jobs you want</Link></p>
+          ) : (
+            <ul className="mt-2 text-sm">
+              {d.campaigns.map((c) => (
+                <li key={c.id} className="flex justify-between border-b border-rule py-2">
+                  <Link className="underline" href="/campaigns">{c.name}</Link>
+                  <span className="text-slate">{c.state === "active" ? "Running" : c.state === "dry_run" ? "Dry run" : "Paused"}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
     </Shell>
   );
 }

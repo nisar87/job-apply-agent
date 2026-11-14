@@ -59,3 +59,13 @@ This is where to judge the writing and tune the match threshold.
 Only after step 5 looks right: set `APP_ENV=production` on the machine that runs it,
 keep approval mode on "I approve every draft", and approve one application you would
 have sent yourself.
+
+## Notes for Windows
+
+- If the PC already runs its own Postgres on port 5432, start the project's database on other
+  ports and set `DATABASE_URL`, `DATABASE_OWNER_URL` and `REDIS_URL` to match.
+- Keep the working copy, the Python environment and `node_modules` on a drive with several
+  gigabytes free. Docker Desktop, the test suite and the website build together need room, and
+  Windows grows its page file on C: while they run.
+- The test suite takes about 25 minutes against Docker on Windows, against about one minute on Linux.
+- `scripts/live_run.py` is the quickest full check: real Gemini, live job sources, practice mailbox.

@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     google_client_secret: str = ""
     google_redirect_uri: str = "http://localhost:8000/api/mail/google/callback"
     google_pubsub_topic: str = ""
+    pubsub_verification_token: str = ""
     mail_provider: str = "gmail"  # gmail | fake
 
     # Job sources

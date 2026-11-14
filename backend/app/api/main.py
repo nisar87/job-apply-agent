@@ -7,7 +7,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
-from app.api import auth, core, work
+from app.api import auth, core, replies, work
 from app.api.deps import current_user_id
 from app.config import get_settings
 from app.db import system_session
@@ -27,6 +27,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(core.router)
 app.include_router(work.router)
+app.include_router(replies.router)
 
 
 @app.get("/api/health")

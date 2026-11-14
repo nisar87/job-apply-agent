@@ -35,7 +35,7 @@ def _active_users() -> list[uuid.UUID]:
     with system_session() as s:
         rows = s.execute(
             select(Campaign.user_id).join(User, User.id == Campaign.user_id)
-            .where(Campaign.state != "paused", User.status == "active").distinct()
+            .where(User.status == "active").distinct()
         ).scalars()
         return list(rows)
 
@@ -82,12 +82,34 @@ def tick_user(user_id: uuid.UUID, now: datetime | None = None, fetcher: Fetcher 
             done["sent"] = len(agent_runs.dispatch_run(s, user_id, now)["sent"])
     except LockBusy:
         pass
+    done["inbox"] = inbox_user(user_id, now)
     return done
+
+
+def inbox_user(user_id: uuid.UUID, now: datetime | None = None) -> dict:
+    """Inbox sync, follow-ups and reminders for one user. Also called when Gmail pushes a change."""
+    from app.llm import MeteredLLM
+    from app.services import inbox
+
+    now = now or datetime.now(UTC)
+    try:
+        with run_lock(user_id, "inbox"), user_session(user_id) as s:
+            llm = MeteredLLM(get_llm(), s, user_id)
+            result = inbox.sync_inbox(s, llm, user_id, now)
+            result.update(inbox.followup_run(s, llm, user_id, now))
+            result["reminders"] = inbox.renotify_urgent(s, user_id, now)
+            return result
+    except LockBusy:
+        return {"busy": True}
+    except SpendCapExceeded:
+        return {"error": "spend cap reached"}
 
 
 def tick(now: datetime | None = None) -> dict:
     now = now or datetime.now(UTC)
     summary = {"users": 0, "sent": 0}
+    if get_redis().get("global_pause"):
+        return {**summary, "paused": True}
     for user_id in _active_users():
         result = tick_user(user_id, now, fetcher=Fetcher())
         summary["users"] += 1

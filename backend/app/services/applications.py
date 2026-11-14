@@ -17,7 +17,7 @@ from app.services.campaigns import get_config
 from app.services.notify import notify
 from app.services.postings import company_of, domain_of, registered_domain
 from app.services.writing import run_checks, write_checked
-from app.tasks.locks import idempotency_key
+from app.tasks.locks import get_redis, idempotency_key
 
 STALE_SENDING_MINUTES = 10
 
@@ -196,6 +196,8 @@ def send(session: Session, app: Application, now: datetime | None = None, *, run
     now = now or datetime.now(UTC)
     if app.status != "queued":
         raise rules.RuleViolation("not_queued", f"Application is {app.status}, not queued")
+    if get_redis().get("global_pause"):
+        raise rules.RuleViolation("global_pause", "Sending is paused for the whole system", retry_later=True)
     campaign = session.get(Campaign, app.campaign_id)
     config = get_config(campaign)
     user = session.get(User, app.user_id)

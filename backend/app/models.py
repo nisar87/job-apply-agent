@@ -250,6 +250,7 @@ class Message(Base, TimestampMixin):
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     summary: Mapped[str] = mapped_column(Text, default="")
     handled_by: Mapped[str | None] = mapped_column(String(16), nullable=True)  # agent | user | none
+    rfc_message_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     __table_args__ = (UniqueConstraint("user_id", "mail_message_id"),)
 
 

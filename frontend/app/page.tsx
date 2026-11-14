@@ -10,6 +10,7 @@ type Dash = {
   campaigns: { id: string; name: string; state: string }[];
 };
 type Setup = { missing: string[] };
+type Day = { day: string; sent: number; replies: number };
 
 const MISSING: Record<string, { text: string; href: string }> = {
   cv: { text: "Upload a CV", href: "/cvs" },
@@ -31,6 +32,7 @@ function Figure({ n, label, href }: { n: number | string; label: string; href?: 
 export default function Today() {
   const dash = useLoad<Dash>("/api/dashboard");
   const setup = useLoad<Setup>("/api/setup/status");
+  const stats = useLoad<Day[]>("/api/stats/daily?days=13");
   const d = dash.data;
   return (
     <Shell title="Today">
@@ -62,6 +64,27 @@ export default function Today() {
             <Figure n={d.week.interviews} label="interviews" href="/applications?status=interview" />
             <Figure n={d.week.rejections} label="rejections" href="/applications?status=rejected" />
           </section>
+          {stats.data && stats.data.some((x) => x.sent || x.replies) && (
+            <section className="mt-8" aria-label="Applications sent and replies received per day">
+              <h2 className="text-xl">Sent and replies by day</h2>
+              <div className="mt-3 flex h-32 items-end gap-1 border-b border-ink">
+                {stats.data.map((x) => {
+                  const max = Math.max(1, ...stats.data!.map((y) => Math.max(y.sent, y.replies)));
+                  return (
+                    <div key={x.day} className="flex flex-1 items-end justify-center gap-px" title={`${x.day}: ${x.sent} sent, ${x.replies} replies`}>
+                      <span className="w-1/2 bg-ink" style={{ height: `${(x.sent / max) * 100}%` }} />
+                      <span className="w-1/2 bg-sent" style={{ height: `${(x.replies / max) * 100}%` }} />
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="mt-1 flex justify-between text-xs text-slate">
+                <span>{stats.data[0].day}</span>
+                <span><span className="mr-1 inline-block h-2 w-2 bg-ink" />sent <span className="ml-3 mr-1 inline-block h-2 w-2 bg-sent" />replies</span>
+                <span>{stats.data[stats.data.length - 1].day}</span>
+              </p>
+            </section>
+          )}
           {d.today.manual_apply > 0 && (
             <p className="mt-8 text-sm">
               {d.today.manual_apply} good {d.today.manual_apply === 1 ? "match accepts" : "matches accept"} applications only through a web form.{" "}

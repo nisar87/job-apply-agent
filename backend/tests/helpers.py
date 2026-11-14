@@ -112,7 +112,40 @@ def install_brain(fake: FakeLLM) -> FakeLLM:
             claims.append({"claim": "20 years of COBOL experience", "supported": False})
         return {"claims": claims}
 
-    for name, fn in [("cv_parse", cv_parse), ("posting_extract", posting_extract), ("score_job", score_job),
+    fake.reply_bad_claim = False
+
+    def classify_reply(prompt, schema):
+        email = prompt.split("<newest_email", 1)[1].lower()
+        table = [
+            ("do not contact", "do_not_contact"), ("remove us", "do_not_contact"), ("received your application", "auto_ack"),
+            ("out of office", "out_of_office"), ("position has been filled", "position_closed"),
+            ("other candidates", "rejection"), ("interview", "interview_invitation"), ("pleased to offer", "offer"),
+            ("assessment", "test_assignment"), ("certificates", "document_request"), ("portal", "redirect"),
+            ("salary", "salary_question"), ("notice period", "routine_question"), ("favourite colour", "routine_question"),
+        ]
+        for needle, category in table:
+            if needle in email:
+                return {"category": category, "confidence": 0.95, "summary": f"employer: {needle}"}
+        if "ignore all previous" in email:
+            return {"category": "routine_question", "confidence": 0.4, "summary": "suspicious"}
+        return {"category": "unclear", "confidence": 0.9, "summary": "unclear"}
+
+    def write_reply(prompt, schema):
+        email = prompt.split("<employer_email>", 1)[1].lower()
+        if "thank-you" in prompt:
+            return {"body": "Thank you for letting me know. I wish you all the best.", "fully_covered": True}
+        if "follow-up" in prompt:
+            return {"body": "I wanted to follow up on my application and ask whether it reached you.", "fully_covered": True}
+        if "notice period" in email:
+            body = "My notice period is 1 month."
+            if fake.reply_bad_claim:
+                body += " I also have 20 years of COBOL experience."
+            return {"body": body, "fully_covered": True, "claims": ["notice period is 1 month"]}
+        if "salary" in email and "65000" in prompt:
+            return {"body": "My salary expectation is 65000 per year.", "fully_covered": True}
+        return {"body": "Thank you for your message. I will come back to you shortly.", "fully_covered": False}
+
+    for name, fn in [("classify_reply", classify_reply), ("write_reply", write_reply), ("cv_parse", cv_parse), ("posting_extract", posting_extract), ("score_job", score_job),
                      ("write_application", write_application), ("fact_check", fact_check)]:
         fake.on(name, fn)
     return fake

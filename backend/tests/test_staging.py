@@ -41,6 +41,17 @@ def test_scheduled_jobs_need_the_shared_token(client, monkeypatch):
     assert r.status_code == 200 and r.json()["job"] == "tick" and "users" in r.json()["result"]
 
 
+def test_reply_hours_and_the_testing_override(monkeypatch):
+    from datetime import datetime
+
+    from app.services.inbox import within_reply_hours
+
+    sunday_night, monday_morning = datetime(2026, 11, 15, 3, 40), datetime(2026, 11, 16, 9, 0)
+    assert not within_reply_hours(sunday_night) and within_reply_hours(monday_morning)
+    _env(monkeypatch, AGENT_REPLY_ANY_TIME="true")
+    assert within_reply_hours(sunday_night)
+
+
 def test_manual_runs_can_finish_after_the_response(client, llm, monkeypatch):
     w = make_world(client, llm)
     _env(monkeypatch, MANUAL_RUNS_IN_BACKGROUND="true")

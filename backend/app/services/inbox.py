@@ -68,6 +68,14 @@ ACTIVE_STATES = ("sent", "acknowledged", "in_conversation", "interview", "offer"
 REPLY_HOURS = (7, 19)
 
 
+def within_reply_hours(local: datetime) -> bool:
+    """The agent answers employers only on weekdays between 7:00 and 19:00 in the user's time zone, so it
+    never looks like a bot replying at night. AGENT_REPLY_ANY_TIME lifts this for testing on staging."""
+    if get_settings().agent_reply_any_time:
+        return True
+    return REPLY_HOURS[0] <= local.hour < REPLY_HOURS[1] and local.weekday() <= 4
+
+
 class ReplyRefused(Exception):
     def __init__(self, code: str, message: str):
         super().__init__(message)
@@ -154,8 +162,7 @@ def send_reply(
             raise ReplyRefused("human_took_over", "You replied in this thread yourself, so the agent stays out of it")
         if app.agent_replies >= config.max_agent_replies:
             raise ReplyRefused("reply_limit", "The agent has reached its reply limit for this thread")
-        local = now.astimezone(rules.user_zone(user))
-        if not (REPLY_HOURS[0] <= local.hour < REPLY_HOURS[1]) or local.weekday() > 4:
+        if not within_reply_hours(now.astimezone(rules.user_zone(user))):
             raise ReplyRefused("outside_hours", "Outside working hours")
     account = mail_account(session, user.id)
     if account is None:
@@ -446,8 +453,7 @@ def sync_inbox(session: Session, llm: LLMClient, user_id: uuid.UUID, now: dateti
 
 def _retry_deferred(session: Session, llm: LLMClient, app: Application, msg: Message, now: datetime) -> None:
     user = session.get(User, app.user_id)
-    local = now.astimezone(rules.user_zone(user))
-    if not (REPLY_HOURS[0] <= local.hour < REPLY_HOURS[1]) or local.weekday() > 4:
+    if not within_reply_hours(now.astimezone(rules.user_zone(user))):
         return
     from app.models import CVVersion
 

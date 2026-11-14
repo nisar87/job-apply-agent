@@ -63,6 +63,8 @@ class Settings(BaseSettings):
     # and search engines are told not to index anything.
     signup_allowlist: str = ""
     hide_from_search: bool = False
+    # Testing only: let the agent answer employers outside weekday working hours.
+    agent_reply_any_time: bool = False
     # Run "Look for jobs now" and "Write drafts now" after the response (behind a proxy with a short request limit).
     manual_runs_in_background: bool = False
     # Shared secret Cloud Scheduler sends to /api/system/run/{job} when no Celery worker runs.

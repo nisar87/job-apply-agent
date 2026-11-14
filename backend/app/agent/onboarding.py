@@ -1,6 +1,7 @@
 """Setup conversation: turn a free-form instruction into a confirmed campaign
 (master document, sections 2 and 4)."""
 
+import logging
 import uuid
 
 from pydantic import ValidationError
@@ -11,6 +12,8 @@ from app.models import User
 from app.services import applications as app_service
 from app.services import cvs as cv_service
 from app.services.campaigns import CampaignConfig
+
+log = logging.getLogger(__name__)
 
 ONBOARDING_SCHEMA = {
     "type": "object",
@@ -31,7 +34,8 @@ ONBOARDING_SCHEMA = {
                 "languages": {"type": "array", "items": {"type": "string"}},
                 "salary_min": {"type": "number"},
                 "max_posting_age_days": {"type": "integer"},
-                "exclude_agencies": {"type": "boolean"},
+                "exclude_agencies": {"type": "boolean",
+                                     "description": "true when the user wants to skip recruitment agencies or recruiters"},
                 "daily_quota": {"type": "integer"},
                 "send_window_start": {"type": "string", "description": "HH:MM"},
                 "send_window_end": {"type": "string", "description": "HH:MM"},
@@ -169,10 +173,7 @@ def onboarding_turn(session: Session, llm: LLMClient, user_id: uuid.UUID, histor
     patch, dropped = stated_settings(data.get("config") or {}, data.get("evidence") or [], history)
     config, problems = merge_config(draft or {}, patch)
     reply = data.get("reply") or "Tell me what kind of jobs you are looking for."
-    if dropped:
-        # The confirmation above was written before the check, so say plainly what was not taken over.
-        reply += (" I could not tie these to your own words, so they stay at their defaults: "
-                  + ", ".join(k.replace("_", " ") for k in dropped) + ". Tell me if you want them changed.")
+    log.info("setup chat: model gave %s, kept %s, dropped %s", data.get("config"), sorted(patch), dropped)
     if problems:
         reply += " One thing needs fixing: " + " ".join(problems)
     escalation = (data.get("escalation_email") or "").strip()

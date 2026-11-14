@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     sandbox_recipient: str = ""
 
     # Agent limits
+    agent_mode: str = "llm"  # llm | playbook
     agent_max_steps: int = 40
     agent_run_timeout_seconds: int = 600
 

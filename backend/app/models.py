@@ -58,6 +58,7 @@ class User(Base, TimestampMixin):
     plan: Mapped[str] = mapped_column(String(32), default="beta")
     status: Mapped[str] = mapped_column(String(32), default="active")  # active | paused | deleted
     is_operator: Mapped[bool] = mapped_column(Boolean, default=False)
+    daily_send_limit: Mapped[int] = mapped_column(Integer, default=20)
     escalation_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
     style_guide: Mapped[str] = mapped_column(Text, default="")
     sample_emails: Mapped[list] = mapped_column(JsonType, default=list)
@@ -219,6 +220,12 @@ class Application(Base, TimestampMixin):
     agent_replies: Mapped[int] = mapped_column(Integer, default=0)
     human_took_over: Mapped[bool] = mapped_column(Boolean, default=False)
     form_data: Mapped[dict] = mapped_column(JsonType, default=dict)
+    check_results: Mapped[dict] = mapped_column(JsonType, default=dict)
+    override_threshold: Mapped[bool] = mapped_column(Boolean, default=False)
+    place_day: Mapped[date | None] = mapped_column(Date, nullable=True)
+    neutral_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    rfc_message_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     __table_args__ = (
         UniqueConstraint("user_id", "posting_id"),
         Index("ix_app_user_domain_sent", "user_id", "recipient_domain", "sent_at"),

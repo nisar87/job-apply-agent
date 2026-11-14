@@ -24,3 +24,31 @@ def ping_llm(user_id: str) -> dict:
         )
         finish_run(session, run, summary=result.text[:100], cost_usd=llm.run_cost)
         return {"run_id": str(run.id), "text": result.text}
+
+
+@celery_app.task(name="jobs.scheduler_tick")
+def scheduler_tick() -> dict:
+    from app.tasks import scheduler
+
+    return scheduler.tick()
+
+
+@celery_app.task(name="jobs.allocate_places")
+def allocate_places() -> int:
+    from app.tasks import scheduler
+
+    return scheduler.allocate_places()
+
+
+@celery_app.task(name="jobs.renew_mail_watches")
+def renew_mail_watches() -> int:
+    from app.services import inbox
+
+    return inbox.renew_watches()
+
+
+@celery_app.task(name="jobs.weekly_digest")
+def weekly_digest() -> int:
+    from app.services import digest
+
+    return digest.send_all()

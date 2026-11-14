@@ -135,6 +135,7 @@ def main() -> int:
         show("agent reply", out["reply"])
         show("settings understood", out["config"])
         show("preferences", out["preferences"])
+        show("not taken over", out.get("not_taken_over"))
         show("ready", out["ready"])
         return out
 
@@ -208,7 +209,7 @@ def main() -> int:
 
     apps = step("what the agent decided")(overview) or []
     drafts = [a for a in apps if a["status"] == "awaiting_approval"]
-    for a in drafts[:2]:
+    for a in drafts[:3]:
         print(f"\n       --- draft for {a['title']} at {a['company']} (score {a.get('score')}, to {a.get('to_address') or a.get('recipient')})")
         print(f"       Subject: {a.get('subject')}\n{a.get('body')}\n       ---")
 
@@ -266,11 +267,20 @@ def main() -> int:
             mail.deliver(email, sender=to, body=body, thread_id=thread, subject="Re: " + (a.get("subject") or ""))
         out = call("post", "/api/inbox/sync")
         show("inbox run", out)
+        # The agent answers only on weekdays in working hours. Run the inbox again as if it were the next
+        # working morning, so an answer deferred until then is written and sent.
+        from app.tasks import scheduler
+
+        morning = datetime.now(UTC) + timedelta(days=1)
+        while morning.weekday() >= 5:
+            morning += timedelta(days=1)
+        later = scheduler.inbox_user(_uuid.UUID(user_id), morning.replace(hour=10, minute=0, second=0, microsecond=0))
+        show("inbox run on the next working morning", later)
         for a in sent[:3]:
             d = call("get", f"/api/applications/{a['id']}")
             print(f"       {a['company'][:30]}: status {d['application']['status']}")
             for m in d["messages"]:
-                print(f"         {m['direction']:3} [{m.get('category')}] by {m.get('handled_by')}: {str(m['body'])[:160]!r}")
+                print(f"         {m['direction']:3} [{m.get('category')}] by {m.get('handled_by')}: {str(m['body'])[:400]!r}")
         esc = call("get", "/api/escalations")
         for e in esc:
             print(f"       escalation ({e['urgency']}): {e['reason'][:120]} | suggested: {str(e.get('suggested_reply'))[:200]!r}")

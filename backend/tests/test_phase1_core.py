@@ -177,3 +177,19 @@ def test_campaign_config_validation():
 
 def test_raw_posting_defaults():
     assert RawPosting(source="x", source_id="1", url="u", title="t", company="c").is_snippet is False
+
+
+def test_a_draft_in_one_block_of_text_is_sent_back(llm):
+    from app.models import Posting
+    from app.services import writing
+    from app.services.campaigns import CampaignConfig
+
+    llm.on("fact_check", lambda p, s: {"claims": []})
+    posting = Posting(title="Engineer", description="", fields={"language": "en"})
+    words = " ".join(["I have built data platforms at Acme for years."] * 14)
+    kw = dict(posting=posting, company_name="Acme", profile={}, fact_sheet={}, expected_language="en",
+              previous_bodies=[], config=CampaignConfig())
+    block = writing.run_checks(llm, {"subject": "Engineer - Alex", "body": f"Dear Acme team, {words} Kind regards, Alex"}, **kw)
+    assert any("one block of text" in p for p in block["problems"])
+    laid_out = f"Dear Acme team,\n\n{words}\n\nKind regards,\nAlex"
+    assert writing.run_checks(llm, {"subject": "Engineer - Alex", "body": laid_out}, **kw)["passed"]

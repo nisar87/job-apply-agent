@@ -90,13 +90,13 @@ def install_brain(fake: FakeLLM) -> FakeLLM:
         company = re.search(r"Company: (.*)", prompt).group(1).strip()
         role = re.search(r"Role: (.*)", prompt).group(1).strip()
         german = "language 'de'" in prompt
-        opening = "Sehr geehrte Damen und Herren, ich bewerbe mich als" if german else "Dear hiring team, I am applying for the role of"
+        opening = "Sehr geehrte Damen und Herren,\n\nich bewerbe mich als" if german else "Dear hiring team,\n\nI am applying for the role of"
         filler = " ".join(f"detail{fake.counter}x{i}" for i in range(120))
-        body = f"{opening} {role} at {company}. I have worked with python and kubernetes at Datawerk. {filler}"
+        body = f"{opening} {role} at {company}. I have worked with python and kubernetes at Datawerk.\n\n{filler}"
         if german:
-            body += " Ich habe mit der Plattform und dem Team sehr viel für die Firma und mit ihr gearbeitet. Mit freundlichen Grüßen"
+            body += "\n\nIch habe mit der Plattform und dem Team sehr viel für die Firma und mit ihr gearbeitet.\n\nMit freundlichen Grüßen"
         else:
-            body += " I have led the migration of services and I am available to start with a notice period. Kind regards"
+            body += "\n\nI have led the migration of services and I am available to start with a notice period.\n\nKind regards"
         add_bad = fake.bad_claim or (fake.bad_claim_once and "previous draft was rejected" not in prompt)
         if add_bad:
             body += " I also have 20 years of COBOL experience."

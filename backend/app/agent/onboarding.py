@@ -90,11 +90,13 @@ def _plain(text: str) -> str:
 def stated_settings(patch: dict, evidence: list, history: list[dict]) -> tuple[dict, list[str]]:
     """Keep only the settings the user really stated. The model must quote the user for each one,
     and the quote must be found in what the user wrote; anything else is dropped and named."""
-    said = _plain(" ".join(str(m.get("text", "")) for m in history if m.get("role") == "user"))
+    said = set(_plain(" ".join(str(m.get("text", "")) for m in history if m.get("role") == "user")).split())
     quoted: set[str] = set()
     for item in evidence or []:
-        words = _plain(item.get("user_words", "")) if isinstance(item, dict) else ""
-        if len(words) >= 2 and words in said:
+        words = _plain(item.get("user_words", "")).split() if isinstance(item, dict) else []
+        # Every quoted word must be one the user wrote. Order is not checked, so a quote stitched
+        # from two places in the message still counts; a quote with words the user never used does not.
+        if words and all(w in said for w in words):
             quoted.add(str(item.get("setting", "")))
     if quoted & (_WINDOW_KEYS | {"send_window"}):
         quoted |= _WINDOW_KEYS
@@ -164,9 +166,13 @@ def onboarding_turn(session: Session, llm: LLMClient, user_id: uuid.UUID, histor
         f"Conversation so far:\n{convo}\n\nSettings understood so far: {draft or {}}\n"
     )
     data = llm.generate_structured(prompt, ONBOARDING_SCHEMA, system=SYSTEM, tier="strong", task="onboarding").data or {}
-    patch, _dropped = stated_settings(data.get("config") or {}, data.get("evidence") or [], history)
+    patch, dropped = stated_settings(data.get("config") or {}, data.get("evidence") or [], history)
     config, problems = merge_config(draft or {}, patch)
     reply = data.get("reply") or "Tell me what kind of jobs you are looking for."
+    if dropped:
+        # The confirmation above was written before the check, so say plainly what was not taken over.
+        reply += (" I could not tie these to your own words, so they stay at their defaults: "
+                  + ", ".join(k.replace("_", " ") for k in dropped) + ". Tell me if you want them changed.")
     if problems:
         reply += " One thing needs fixing: " + " ".join(problems)
     escalation = (data.get("escalation_email") or "").strip()
@@ -180,6 +186,7 @@ def onboarding_turn(session: Session, llm: LLMClient, user_id: uuid.UUID, histor
     return {
         "reply": reply, "config": config, "campaign_name": data.get("campaign_name") or "My job search",
         "preferences": [p for p in (data.get("preferences") or []) if str(p).strip()][:10],
+        "not_taken_over": dropped,
         "status": status, "ready": not status["missing"] and not problems and not data.get("open_question", False)
         and bool(config.get("keywords")),
     }

@@ -67,10 +67,10 @@ def demo_llm() -> FakeLLM:
         matches = re.findall(r"'requirement': '([^']+)'", _block(prompt, "strongest_matches"))[:3]
         strengths = ", ".join(matches) if matches else "the requirements you list"
         body = (
-            f"Dear hiring team at {company},\n\nI am writing to apply for the {role} position. My background covers {strengths}, "
-            "and my CV, attached, shows where I have used these in practice. I would welcome the chance to explain how this "
-            "experience fits what you are looking for.\n\nI am glad to provide anything further you need and look forward to "
-            f"hearing from you.\n\nKind regards,\n{name}\n\n(This text was produced by the built-in demo writer, not by Gemini.)"
+            f"Dear hiring team at {company},\n\nI'd like to apply for the {role} role. Most of my recent work has been "
+            f"with {strengths}, and my CV (attached) shows where I've used them day to day.\n\nIf it helps, I'm happy "
+            "to walk you through any of it on a short call.\n\n"
+            f"Kind regards,\n{name}\n\n(This text was produced by the built-in demo writer, not by Gemini.)"
         )
         return {"subject": f"Application: {role} - {name}", "body": body, "language": "en", "claims": []}
 

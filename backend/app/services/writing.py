@@ -49,6 +49,45 @@ _EN = {"and", "the", "i", "with", "for", "is", "not", "you", "your", "at", "a", 
        "application", "as", "on", "have", "of", "to", "in", "that", "am"}
 SIMILARITY_LIMIT = 0.8
 
+# How every email the agent writes must sound: like the candidate typed it, not like a template or a bot.
+HUMAN_VOICE = (
+    "Voice: write exactly as the candidate would type it to a real person. Plain, everyday words and "
+    "short sentences; in English use contractions (I've, I'm, I'd). Match the other person's tone and length: a "
+    "two-line question gets a two- or three-line answer. Get to the point in the first sentence. Use at most one "
+    "concrete example, told in your own words; never paste sentences or phrases from the CV. No buzzwords, no "
+    "stock phrases, nothing that sounds generated: avoid 'I hope this email finds you well', 'I am writing to', "
+    "'I am excited/thrilled', 'passionate', 'leverage', 'proven track record', 'results-driven', 'dynamic', "
+    "'perfect fit', 'Furthermore', 'Moreover', 'Additionally', 'Please do not hesitate', 'Thank you for your "
+    "time and consideration'. Do not over-thank, do not list skills, do not repeat what the other person said."
+)
+
+# Phrases that make an email read as generated. Matched case-insensitively, ignoring apostrophe style.
+AUTOMATED_PHRASES = (
+    "hope this email finds you", "hope this message finds you", "hope you are doing well", "i am writing to",
+    "i'm writing to", "i am excited to", "i'm excited to", "thrilled", "passionate about", "leverage", "leveraging",
+    "delve", "synergy", "proven track record", "results-driven", "results-oriented", "highly motivated",
+    "detail-oriented", "dynamic team", "fast-paced environment", "perfect fit", "great fit for", "esteemed",
+    "please do not hesitate", "please don't hesitate", "thank you for your time and consideration",
+    "i am confident that", "i'm confident that", "furthermore,", "moreover,", "additionally,", "in conclusion",
+    "as an ai", "great question", "i would be delighted", "valuable asset", "align perfectly", "aligns perfectly",
+)
+COPIED_RUN = 8   # this many words in a row taken from the CV reads like a pasted CV, not a person
+
+
+def voice_problems(body: str, profile: dict) -> list[str]:
+    """Why an email would not read as written by a person: stock phrases, or a run of words copied from the CV."""
+    text = body.lower().replace("’", "'")
+    problems = [f"sounds automated: '{p.strip(',')}'" for p in AUTOMATED_PHRASES if p in text]
+    words = re.findall(r"[a-z0-9#+.]+", text)
+    cv_words = re.findall(r"[a-z0-9#+.]+", cv_service.profile_text(profile).lower())
+    cv_runs = {" ".join(cv_words[i:i + COPIED_RUN]) for i in range(len(cv_words) - COPIED_RUN + 1)}
+    for i in range(len(words) - COPIED_RUN + 1):
+        run = " ".join(words[i:i + COPIED_RUN])
+        if run in cv_runs:
+            problems.append(f"copies the CV word for word: '{run}'")
+            break
+    return problems
+
 
 def detect_language(text: str) -> str | None:
     """A small detector for the two launch languages. Returns 'de', 'en' or None."""
@@ -114,6 +153,7 @@ def run_checks(
         problems.append("the email is one block of text: put the greeting, each paragraph and the closing on their own lines")
     if too_similar(body, previous_bodies):
         problems.append("too similar to a recently sent email")
+    problems += voice_problems(f"{subject}\n{body}", profile)
     unsupported = fact_check(llm, body, profile, fact_sheet) if body.strip() else []
     problems += [f"unsupported claim: {c}" for c in unsupported]
     return {"passed": not problems, "problems": problems}
@@ -130,7 +170,9 @@ def write_application(
     prompt = (
         f"Write a job application email from {user_name}. It is sent from their own mailbox with their CV attached.\n"
         f"Rules:\n- Write in language '{language}'. Use formal address for Austrian and German employers.\n"
-        f"- {config.email_min_words} to {config.email_max_words} words. No template phrases, no buzzwords.\n"
+        f"- {config.email_min_words} to {config.email_max_words} words.\n"
+        f"- {HUMAN_VOICE} Open with why this particular role caught the candidate's eye or with their most relevant work, "
+        "not with 'I am applying'. Close simply, for example 'Happy to talk more if it's useful.'\n"
         "- Build the body on the two or three strongest matches below. State only facts found in the profile or "
         "fact sheet. Leave out any requirement the candidate does not meet.\n"
         "- Copy the company name, role title and contact name exactly as given. Never leave a placeholder.\n"

@@ -75,6 +75,9 @@ entry quoting the user's words for it, copied exactly. A setting without a match
 "Skip agencies" or "no recruiters" means exclude_agencies true. A cooldown stated for companies is \
 company_cooldown_days; one stated for contacts or HR addresses is contact_cooldown_days.
 
+Be complete: every country, work mode, limit, time window, cooldown and exclusion the user named must appear in \
+config, each with its quote. Countries are ISO codes: Germany is de, Austria is at, Switzerland is ch.
+
 Reply: if an instruction is vague or contradicts another, ask exactly one short question. Otherwise confirm \
 what you understood in two or three sentences. Do not say anything about what is still missing on the account \
 (CV, mailbox, and so on): the product adds that itself. Never promise something the product cannot do: it \
@@ -113,6 +116,39 @@ def stated_settings(patch: dict, evidence: list, history: list[dict]) -> tuple[d
         else:
             dropped.append(key)
     return kept, dropped
+
+
+_LABELS = {
+    "keywords": "roles", "countries": "countries", "locations": "locations", "work_modes": "work mode",
+    "contract_types": "contract type", "seniority": "seniority", "languages": "posting languages",
+    "salary_min": "minimum yearly salary", "max_posting_age_days": "posted within (days)",
+    "exclude_agencies": "skip recruitment agencies", "daily_quota": "applications per day",
+    "company_cooldown_days": "days before the same company again",
+    "contact_cooldown_days": "days before the same contact again", "match_threshold": "minimum match score",
+    "follow_up_enabled": "send a follow-up", "follow_up_after_days": "follow up after (days)",
+}
+
+
+def describe_settings(config: dict) -> str:
+    """The settings that differ from the defaults, in plain words. Built from what is actually
+    stored, so the confirmation can never claim a setting that was not taken over."""
+    defaults = CampaignConfig().model_dump(mode="json")
+    parts = []
+    for key, label in _LABELS.items():
+        value = config.get(key)
+        if value == defaults.get(key) or value in (None, "", []):
+            continue
+        if isinstance(value, bool):
+            text = "yes" if value else "no"
+        elif isinstance(value, list):
+            text = ", ".join(str(v) for v in value)
+        else:
+            text = f"{value:g}" if isinstance(value, float) else str(value)
+        parts.append(f"{label}: {text}")
+    window, default_window = config.get("send_window") or {}, defaults["send_window"]
+    if (window.get("start"), window.get("end")) != (default_window["start"], default_window["end"]):
+        parts.append(f"send between {window.get('start')} and {window.get('end')}")
+    return "; ".join(parts)
 
 
 def setup_status(session: Session, user_id: uuid.UUID) -> dict:
@@ -173,6 +209,10 @@ def onboarding_turn(session: Session, llm: LLMClient, user_id: uuid.UUID, histor
     patch, dropped = stated_settings(data.get("config") or {}, data.get("evidence") or [], history)
     config, problems = merge_config(draft or {}, patch)
     reply = data.get("reply") or "Tell me what kind of jobs you are looking for."
+    if not data.get("open_question", False) and not problems:
+        summary = describe_settings(config)
+        if summary:
+            reply += f" Saved settings: {summary}. Everything else is at its default; tell me if something is missing."
     log.info("setup chat: model gave %s, kept %s, dropped %s", data.get("config"), sorted(patch), dropped)
     if problems:
         reply += " One thing needs fixing: " + " ".join(problems)

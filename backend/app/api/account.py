@@ -31,7 +31,7 @@ def rate_limit(key: str, limit: int, window_seconds: int) -> None:
 
 
 @router.get("/account/export")
-def export(user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db)):
+def export(user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
     return account_service.export_data(session, user_id)
 
 
@@ -40,7 +40,7 @@ class DeleteIn(BaseModel):
 
 
 @router.post("/account/delete", status_code=204)
-def delete(body: DeleteIn, user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db)):
+def delete(body: DeleteIn, user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
     user = session.get(User, user_id)
     if not verify_password(body.password, user.password_hash):
         raise HTTPException(403, "Wrong password")

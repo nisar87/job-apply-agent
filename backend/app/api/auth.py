@@ -90,7 +90,7 @@ def login(body: LoginIn):
 
 
 @router.get("/me", response_model=UserOut)
-def me(user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db)):
+def me(user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
     user = session.get(User, user_id)
     if not user:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Account not found")
@@ -98,7 +98,7 @@ def me(user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends
 
 
 @router.patch("/me", response_model=UserOut)
-def update_me(body: UserPatch, user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db)):
+def update_me(body: UserPatch, user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
     user = session.get(User, user_id)
     for key, value in body.model_dump(exclude_unset=True).items():
         setattr(user, key, value)

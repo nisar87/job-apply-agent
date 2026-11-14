@@ -21,5 +21,8 @@ def current_user_id(creds: HTTPAuthorizationCredentials | None = Depends(_bearer
 
 
 def db(user_id: uuid.UUID = Depends(current_user_id)) -> Iterator[Session]:
+    """Always use as Depends(db, scope="function"): the transaction is then committed before the
+    response is sent. With the default scope the commit happens after the response, and a page
+    that reloads its list right after saving can be served the old data."""
     with user_session(user_id) as session:
         yield session

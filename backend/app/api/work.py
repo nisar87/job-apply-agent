@@ -70,7 +70,7 @@ def _app_out(session: Session, app: Application) -> ApplicationOut:
 def list_applications(
     status: str | None = None, campaign_id: uuid.UUID | None = None, q: str | None = None,
     since: datetime | None = None, until: datetime | None = None, limit: int = Query(200, le=500),
-    user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db),
+    user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function"),
 ):
     query = select(Application).where(Application.user_id == user_id)
     if status:
@@ -91,7 +91,7 @@ def list_applications(
 
 
 @router.get("/applications/{app_id}")
-def application_detail(app_id: uuid.UUID, session: Session = Depends(db)):
+def application_detail(app_id: uuid.UUID, session: Session = Depends(db, scope="function")):
     app = _own(session, Application, app_id)
     posting = session.get(Posting, app.posting_id)
     match = session.get(Match, app.match_id) if app.match_id else None
@@ -124,7 +124,7 @@ class RejectIn(BaseModel):
 
 
 @router.post("/applications/{app_id}/approve", response_model=ApplicationOut)
-def approve(app_id: uuid.UUID, body: ApproveIn, user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db)):
+def approve(app_id: uuid.UUID, body: ApproveIn, user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
     app = _own(session, Application, app_id)
     try:
         app_service.approve(session, app, subject=body.subject, body=body.body, llm=_llm(session, user_id))
@@ -135,7 +135,7 @@ def approve(app_id: uuid.UUID, body: ApproveIn, user_id: uuid.UUID = Depends(cur
 
 
 @router.post("/applications/{app_id}/reject", response_model=ApplicationOut)
-def reject(app_id: uuid.UUID, body: RejectIn, session: Session = Depends(db)):
+def reject(app_id: uuid.UUID, body: RejectIn, session: Session = Depends(db, scope="function")):
     app = _own(session, Application, app_id)
     try:
         app_service.reject(session, app, body.reason, body.never_company)
@@ -148,7 +148,7 @@ def reject(app_id: uuid.UUID, body: RejectIn, session: Session = Depends(db)):
 
 @router.get("/matches", response_model=list[MatchOut])
 def list_matches(decision: str = "skip", limit: int = Query(200, le=500),
-                 user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db)):
+                 user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
     rows = session.execute(
         select(Match).where(Match.user_id == user_id, Match.decision.in_(decision.split(",")))
         .order_by(Match.created_at.desc()).limit(limit)
@@ -165,7 +165,7 @@ def list_matches(decision: str = "skip", limit: int = Query(200, le=500),
 
 
 @router.post("/matches/{match_id}/apply-anyway", response_model=ApplicationOut)
-def apply_anyway(match_id: uuid.UUID, user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db)):
+def apply_anyway(match_id: uuid.UUID, user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
     match = _own(session, Match, match_id)
     try:
         app = app_service.override_and_draft(session, _llm(session, user_id), match)
@@ -184,7 +184,7 @@ class AddJobIn(BaseModel):
 
 
 @router.post("/postings/by-url")
-def add_by_url(body: AddJobIn, user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db)):
+def add_by_url(body: AddJobIn, user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
     campaign = _own(session, Campaign, body.campaign_id)
     try:
         text = Fetcher().fetch_text(body.url)
@@ -207,7 +207,7 @@ def add_by_url(body: AddJobIn, user_id: uuid.UUID = Depends(current_user_id), se
 # ---- Dashboard ----
 
 @router.get("/dashboard")
-def dashboard(user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db)):
+def dashboard(user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
     user = session.get(User, user_id)
     zone = rules.user_zone(user)
     now = datetime.now(UTC)
@@ -245,7 +245,7 @@ def dashboard(user_id: uuid.UUID = Depends(current_user_id), session: Session = 
 # ---- Notifications ----
 
 @router.get("/notifications", response_model=list[NotificationOut])
-def notifications(unread_only: bool = False, user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db)):
+def notifications(unread_only: bool = False, user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
     q = select(Notification).where(Notification.user_id == user_id)
     if unread_only:
         q = q.where(Notification.read.is_(False))
@@ -253,14 +253,14 @@ def notifications(unread_only: bool = False, user_id: uuid.UUID = Depends(curren
 
 
 @router.post("/notifications/{note_id}/read", status_code=204)
-def mark_read(note_id: uuid.UUID, session: Session = Depends(db)):
+def mark_read(note_id: uuid.UUID, session: Session = Depends(db, scope="function")):
     _own(session, Notification, note_id).read = True
 
 
 # ---- Manual runs ----
 
 @router.post("/campaigns/{campaign_id}/run")
-def run_now(campaign_id: uuid.UUID, kind: str = "prepare", user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db)):
+def run_now(campaign_id: uuid.UUID, kind: str = "prepare", user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
     """Start a run now instead of waiting for the schedule."""
     campaign = _own(session, Campaign, campaign_id)
     if kind not in ("discovery", "prepare", "dispatch"):
@@ -284,7 +284,7 @@ def _state_token(user_id: uuid.UUID) -> str:
 
 
 @router.get("/mail/account")
-def mail_status(user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db)):
+def mail_status(user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
     rows = session.execute(select(MailAccount).where(MailAccount.user_id == user_id)).scalars()
     return [{"id": a.id, "address": a.address, "provider": a.provider, "status": a.status, "watch_expiry": a.watch_expiry} for a in rows]
 
@@ -358,7 +358,7 @@ class FakeConnectIn(BaseModel):
 
 
 @router.post("/mail/fake/connect")
-def fake_connect(body: FakeConnectIn, user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db)):
+def fake_connect(body: FakeConnectIn, user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
     """Development only: connect the in-memory mailbox so the whole flow can be tried without Google."""
     if get_settings().mail_provider != "fake":
         raise HTTPException(404, "Not found")
@@ -367,7 +367,7 @@ def fake_connect(body: FakeConnectIn, user_id: uuid.UUID = Depends(current_user_
 
 
 @router.delete("/mail/account/{account_id}", status_code=204)
-def disconnect_mail(account_id: uuid.UUID, user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db)):
+def disconnect_mail(account_id: uuid.UUID, user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
     account = _own(session, MailAccount, account_id)
     if account.provider == "gmail":
         try:  # revoke at Google, then forget the token
@@ -383,7 +383,7 @@ def disconnect_mail(account_id: uuid.UUID, user_id: uuid.UUID = Depends(current_
 # ---- Web application forms (phase 3) ----
 
 @router.post("/applications/{app_id}/form/prepare", response_model=ApplicationOut)
-def form_prepare(app_id: uuid.UUID, user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db)):
+def form_prepare(app_id: uuid.UUID, user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
     """Fill the employer's form without submitting it, and keep a screenshot for review."""
     from app.services import forms
 
@@ -397,7 +397,7 @@ def form_prepare(app_id: uuid.UUID, user_id: uuid.UUID = Depends(current_user_id
 
 
 @router.get("/applications/{app_id}/form")
-def form_review(app_id: uuid.UUID, session: Session = Depends(db)):
+def form_review(app_id: uuid.UUID, session: Session = Depends(db, scope="function")):
     app = _own(session, Application, app_id)
     data = app.form_data or {}
     fields = {f["id"]: f for f in data.get("fields", [])}
@@ -410,7 +410,7 @@ def form_review(app_id: uuid.UUID, session: Session = Depends(db)):
 
 
 @router.get("/applications/{app_id}/form/screenshot")
-def form_screenshot(app_id: uuid.UUID, proof: bool = False, session: Session = Depends(db)):
+def form_screenshot(app_id: uuid.UUID, proof: bool = False, session: Session = Depends(db, scope="function")):
     from fastapi.responses import Response
 
     from app import storage
@@ -423,7 +423,7 @@ def form_screenshot(app_id: uuid.UUID, proof: bool = False, session: Session = D
 
 
 @router.post("/applications/{app_id}/form/approve", response_model=ApplicationOut)
-def form_approve(app_id: uuid.UUID, session: Session = Depends(db)):
+def form_approve(app_id: uuid.UUID, session: Session = Depends(db, scope="function")):
     """Approve the filled form. It is submitted now if the rules allow, otherwise in the next send window."""
     from app.services import forms
 

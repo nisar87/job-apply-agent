@@ -39,7 +39,7 @@ def _split(value: str) -> list[str]:
 # ---- CVs ----
 
 @router.get("/cvs", response_model=list[CVOut])
-def list_cvs(user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db)):
+def list_cvs(user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
     return cv_service.list_cvs(session, user_id)
 
 
@@ -47,7 +47,7 @@ def list_cvs(user_id: uuid.UUID = Depends(current_user_id), session: Session = D
 async def upload_cv(
     file: UploadFile = File(...), label: str = Form(...), target_roles: str = Form(""), keywords: str = Form(""),
     language: str = Form("en"), cv_id: uuid.UUID | None = Form(None),
-    user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db),
+    user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function"),
 ):
     data = await file.read(cv_service.MAX_BYTES + 1)
     try:
@@ -72,19 +72,19 @@ class CVPatch(BaseModel):
 
 
 @router.patch("/cvs/{cv_id}", response_model=CVOut)
-def patch_cv(cv_id: uuid.UUID, body: CVPatch, user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db)):
+def patch_cv(cv_id: uuid.UUID, body: CVPatch, user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
     cv = _own(session, CV, cv_id)
     return cv_service.update_cv(session, _llm(session, user_id), cv, **body.model_dump(exclude_unset=True))
 
 
 @router.get("/cvs/{cv_id}/profile")
-def cv_profile(cv_id: uuid.UUID, session: Session = Depends(db)):
+def cv_profile(cv_id: uuid.UUID, session: Session = Depends(db, scope="function")):
     version = cv_service.current_version(session, _own(session, CV, cv_id))
     return {"profile": version.profile if version else {}, "file_name": version.file_name if version else ""}
 
 
 @router.get("/cv-versions/{version_id}/file")
-def cv_file(version_id: uuid.UUID, session: Session = Depends(db)):
+def cv_file(version_id: uuid.UUID, session: Session = Depends(db, scope="function")):
     from app.models import CVVersion
 
     version = _own(session, CVVersion, version_id)
@@ -95,12 +95,12 @@ def cv_file(version_id: uuid.UUID, session: Session = Depends(db)):
 # ---- Fact sheet ----
 
 @router.get("/fact-sheet")
-def get_fact_sheet(user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db)):
+def get_fact_sheet(user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
     return cv_service.get_fact_sheet(session, user_id)
 
 
 @router.put("/fact-sheet")
-def put_fact_sheet(body: dict, user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db)):
+def put_fact_sheet(body: dict, user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
     return cv_service.save_fact_sheet(session, user_id, body)
 
 
@@ -130,12 +130,12 @@ def _validated(config: dict) -> CampaignConfig:
 
 
 @router.get("/campaigns", response_model=list[CampaignOut])
-def list_campaigns(user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db)):
+def list_campaigns(user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
     return campaign_service.list_campaigns(session, user_id)
 
 
 @router.post("/campaigns", response_model=CampaignOut, status_code=201)
-def create_campaign(body: CampaignIn, user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db)):
+def create_campaign(body: CampaignIn, user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
     if body.state not in ("active", "paused", "dry_run"):
         raise HTTPException(422, "Unknown state")
     try:
@@ -149,7 +149,7 @@ def create_campaign(body: CampaignIn, user_id: uuid.UUID = Depends(current_user_
 
 
 @router.patch("/campaigns/{campaign_id}", response_model=CampaignOut)
-def patch_campaign(campaign_id: uuid.UUID, body: CampaignPatch, session: Session = Depends(db)):
+def patch_campaign(campaign_id: uuid.UUID, body: CampaignPatch, session: Session = Depends(db, scope="function")):
     campaign = _own(session, Campaign, campaign_id)
     data = body.model_dump(exclude_unset=True)
     if "config" in data:
@@ -168,13 +168,13 @@ class PreferenceIn(BaseModel):
 
 
 @router.get("/preferences")
-def list_preferences(user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db)):
+def list_preferences(user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
     rows = session.execute(select(Preference).where(Preference.user_id == user_id).order_by(Preference.created_at.desc())).scalars()
     return [{"id": p.id, "text": p.text, "campaign_id": p.campaign_id, "source": p.source, "active": p.active} for p in rows]
 
 
 @router.post("/preferences", status_code=201)
-def add_preference(body: PreferenceIn, user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db)):
+def add_preference(body: PreferenceIn, user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
     if body.campaign_id:
         _own(session, Campaign, body.campaign_id)
     pref = Preference(user_id=user_id, campaign_id=body.campaign_id, text=body.text, source="user")
@@ -184,7 +184,7 @@ def add_preference(body: PreferenceIn, user_id: uuid.UUID = Depends(current_user
 
 
 @router.patch("/preferences/{pref_id}")
-def toggle_preference(pref_id: uuid.UUID, active: bool, session: Session = Depends(db)):
+def toggle_preference(pref_id: uuid.UUID, active: bool, session: Session = Depends(db, scope="function")):
     pref = _own(session, Preference, pref_id)
     pref.active = active
     return {"id": pref.id, "active": pref.active}
@@ -198,7 +198,7 @@ class SetupTurnIn(BaseModel):
 
 
 @router.post("/setup/turn")
-def setup_turn(body: SetupTurnIn, user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db)):
+def setup_turn(body: SetupTurnIn, user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
     try:
         return onboarding.onboarding_turn(session, _llm(session, user_id), user_id, body.history, body.draft)
     except SpendCapExceeded as exc:
@@ -206,7 +206,7 @@ def setup_turn(body: SetupTurnIn, user_id: uuid.UUID = Depends(current_user_id),
 
 
 @router.get("/setup/status")
-def setup_status(user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db)):
+def setup_status(user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
     return onboarding.setup_status(session, user_id)
 
 
@@ -219,12 +219,12 @@ class BlockIn(BaseModel):
 
 
 @router.get("/blocks", response_model=list[BlockOut])
-def list_blocks(user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db)):
+def list_blocks(user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
     return list(session.execute(select(Block).where(Block.user_id == user_id).order_by(Block.created_at)).scalars())
 
 
 @router.post("/blocks", response_model=BlockOut, status_code=201)
-def add_block(body: BlockIn, user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db)):
+def add_block(body: BlockIn, user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
     if body.type not in ("company", "domain", "address"):
         raise HTTPException(422, "Type must be company, domain or address")
     value = body.value.strip() if body.type == "company" else body.value.strip().lower()
@@ -239,7 +239,7 @@ def add_block(body: BlockIn, user_id: uuid.UUID = Depends(current_user_id), sess
 
 
 @router.delete("/blocks/{block_id}", status_code=204)
-def remove_block(block_id: uuid.UUID, session: Session = Depends(db)):
+def remove_block(block_id: uuid.UUID, session: Session = Depends(db, scope="function")):
     block = _own(session, Block, block_id)
     if not block.removable:
         raise HTTPException(409, "This entry was added because the employer asked not to be contacted. It cannot be removed.")

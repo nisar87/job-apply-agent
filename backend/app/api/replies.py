@@ -49,7 +49,7 @@ def _esc_out(session: Session, esc: Escalation) -> dict:
 
 
 @router.get("/escalations")
-def list_escalations(state: str = "open", user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db)):
+def list_escalations(state: str = "open", user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
     rows = session.execute(
         select(Escalation).where(Escalation.user_id == user_id, Escalation.state == state)
         .order_by(Escalation.urgency.desc(), Escalation.created_at.desc()).limit(200)
@@ -68,7 +68,7 @@ def _resolve(session: Session, esc: Escalation, state: str) -> None:
 
 
 @router.post("/escalations/{esc_id}/answer")
-def answer(esc_id: uuid.UUID, body: AnswerIn, session: Session = Depends(db)):
+def answer(esc_id: uuid.UUID, body: AnswerIn, session: Session = Depends(db, scope="function")):
     """Send the suggested or edited reply. It goes out in the user's name, from the user's mailbox."""
     esc = _own(session, Escalation, esc_id)
     if esc.state != "open":
@@ -86,7 +86,7 @@ def answer(esc_id: uuid.UUID, body: AnswerIn, session: Session = Depends(db)):
 
 
 @router.post("/escalations/{esc_id}/dismiss")
-def dismiss(esc_id: uuid.UUID, replied_myself: bool = False, session: Session = Depends(db)):
+def dismiss(esc_id: uuid.UUID, replied_myself: bool = False, session: Session = Depends(db, scope="function")):
     esc = _own(session, Escalation, esc_id)
     app = session.get(Application, esc.application_id)
     if replied_myself:
@@ -125,7 +125,7 @@ async def gmail_push(request: Request, token: str = ""):
 
 
 @router.get("/stats/daily")
-def daily_stats(days: int = Query(14, ge=1, le=90), user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db)):
+def daily_stats(days: int = Query(14, ge=1, le=90), user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
     since = datetime.now(UTC) - timedelta(days=days)
     sent = dict(session.execute(
         select(func.date(Application.sent_at), func.count()).where(Application.user_id == user_id, Application.sent_at >= since)
@@ -145,7 +145,7 @@ def daily_stats(days: int = Query(14, ge=1, le=90), user_id: uuid.UUID = Depends
 
 # ---- Operator console (section 12) ----
 
-def _operator(user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db)) -> uuid.UUID:
+def _operator(user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")) -> uuid.UUID:
     user = session.get(User, user_id)
     if not user or not user.is_operator:
         raise HTTPException(404, "Not found")

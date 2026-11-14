@@ -1,2 +1,8 @@
+# Staging is private: no search engine may crawl it.
+# The app's own fetcher may read the practice job ads used to test the whole flow.
+User-agent: JobApplyAgent
+Allow: /practice/
+Disallow: /
+
 User-agent: *
 Disallow: /

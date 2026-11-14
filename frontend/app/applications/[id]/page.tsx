@@ -2,6 +2,7 @@
 
 import { useParams } from "next/navigation";
 import { useState } from "react";
+import FormReview from "@/components/FormReview";
 import Shell from "@/components/Shell";
 import { ErrorNote, Postmark, errorText, useLoad } from "@/components/ui";
 import { api, fmtDate } from "@/lib/api";
@@ -60,7 +61,8 @@ export default function ApplicationPage() {
             {a.check_results?.problems && a.check_results.problems.length > 0 && (
               <ul className="mt-2 list-disc pl-5 text-sm text-problem">{a.check_results.problems.map((p) => <li key={p}>{p}</li>)}</ul>
             )}
-            <h2 className="mt-6 text-xl">{editable ? "Draft" : "Email"}</h2>
+            {a.route === "form" && id && <FormReview id={id} status={a.status} onChange={reload} />}
+            <h2 className="mt-6 text-xl">{editable ? "Draft" : a.route === "form" ? "Cover text" : "Email"}</h2>
             {editable ? (
               <div className="mt-2 space-y-3">
                 <input className="field" aria-label="Subject" value={subject ?? a.subject} onChange={(e) => setSubject(e.target.value)} />

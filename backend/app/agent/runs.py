@@ -108,5 +108,19 @@ def dispatch_run(session: Session, user_id: uuid.UUID, now: datetime | None = No
                     app.skip_reason = "employer limit reached; queued for the next day"
                 if v.code in ("too_soon", "campaign_quota", "user_quota", "mail_auth", "no_mail_account"):
                     break
+    # Web forms that were approved (or may be submitted automatically) go out under the same rules.
+    from app.services import forms
+
+    ready = session.execute(select(Application).where(Application.user_id == user_id, Application.status == "form_ready")).scalars().all()
+    for app in sorted(ready, key=lambda a: -(a.score or 0.0)):
+        try:
+            forms.submit_form(session, app, now=now)
+            sent.append(str(app.id))
+        except rules.RuleViolation as v:
+            refused[str(app.id)] = v.code
+            if v.code in ("too_soon", "campaign_quota", "user_quota", "outside_window", "global_pause"):
+                break
+        except forms.FormStopped as stop:
+            refused[str(app.id)] = f"form: {stop.reason}"
     session.flush()
     return {"sent": sent, "refused": refused, "expired": expired}

@@ -79,19 +79,23 @@ def check_send(
         raise RuleViolation("user_paused", "The account is paused")
     if campaign.state == "paused":
         raise RuleViolation("campaign_paused", "This search is paused", retry_later=True)
-    if app.route != "email" or not posting.contact_email:
-        raise RuleViolation("no_email_route", "This posting has no application email address")
-    # The recipient is never free text: it must be the validated address stored on the posting.
-    if (app.recipient or "").lower() != posting.contact_email.lower():
-        raise RuleViolation("recipient_mismatch", "The recipient does not match the posting's contact address")
+    is_form = app.route == "form"
+    if not is_form:
+        if not posting.contact_email:
+            raise RuleViolation("no_email_route", "This posting has no application email address")
+        # The recipient is never free text: it must be the validated address stored on the posting.
+        if (app.recipient or "").lower() != posting.contact_email.lower():
+            raise RuleViolation("recipient_mismatch", "The recipient does not match the posting's contact address")
     if not (app.check_results or {}).get("passed"):
         raise RuleViolation("checks_failed", "The draft has not passed its checks")
     if app.score is not None and app.score < config.match_threshold and not app.override_threshold:
         raise RuleViolation("below_threshold", f"Score {app.score} is below the threshold of {config.match_threshold}")
-    if campaign.approval_mode == "review" and app.approved_at is None:
-        raise RuleViolation("needs_approval", "Waiting for your approval", retry_later=True)
-    if campaign.approval_mode == "auto_above" and app.approved_at is None and (app.score or 0) < campaign.auto_above_score:
-        raise RuleViolation("needs_approval", "Waiting for your approval", retry_later=True)
+    # Forms have their own approval rule (clean reviews per hiring system), checked by the form service.
+    if not is_form:
+        if campaign.approval_mode == "review" and app.approved_at is None:
+            raise RuleViolation("needs_approval", "Waiting for your approval", retry_later=True)
+        if campaign.approval_mode == "auto_above" and app.approved_at is None and (app.score or 0) < campaign.auto_above_score:
+            raise RuleViolation("needs_approval", "Waiting for your approval", retry_later=True)
     if not posting.is_open:
         raise RuleViolation("posting_closed", "The posting has closed")
     if config.max_posting_age_days is not None and not app.override_threshold:
@@ -119,7 +123,7 @@ def check_send(
         ).first()
         if hit:
             raise RuleViolation("company_cooldown", f"You applied to this company in the last {config.company_cooldown_days} days")
-    if config.contact_cooldown_days:
+    if config.contact_cooldown_days and not is_form:
         since = now - timedelta(days=config.contact_cooldown_days)
         hit = session.execute(
             select(Application.id).where(

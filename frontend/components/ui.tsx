@@ -20,6 +20,7 @@ const STATUS_STYLE: Record<string, { label: string; tone: string }> = {
   skipped: { label: "Skipped", tone: "text-slate" },
   manual_apply: { label: "Apply by hand", tone: "text-waiting" },
   dry_run: { label: "Dry run, not sent", tone: "text-slate" },
+  form_ready: { label: "Form filled, check it", tone: "text-waiting" },
   draft: { label: "Draft", tone: "text-slate" },
 };
 

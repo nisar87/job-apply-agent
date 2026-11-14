@@ -31,7 +31,7 @@ function Log() {
   const [error, setError] = useState("");
   const query = useMemo(() => {
     const p = new URLSearchParams();
-    if (tab === "manual") p.set("status", "manual_apply");
+    if (tab === "manual") p.set("status", "manual_apply,form_ready");
     else if (status) p.set("status", status);
     if (q) p.set("q", q);
     return `/api/applications?${p.toString()}`;

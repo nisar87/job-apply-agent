@@ -372,3 +372,64 @@ def disconnect_mail(account_id: uuid.UUID, user_id: uuid.UUID = Depends(current_
             pass
     session.delete(account)
     audit.record(session, user_id=user_id, actor="user", tool="disconnect_mail", input={"address": account.address})
+
+
+# ---- Web application forms (phase 3) ----
+
+@router.post("/applications/{app_id}/form/prepare", response_model=ApplicationOut)
+def form_prepare(app_id: uuid.UUID, user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db)):
+    """Fill the employer's form without submitting it, and keep a screenshot for review."""
+    from app.services import forms
+
+    app = _own(session, Application, app_id)
+    try:
+        forms.prepare_form(session, _llm(session, user_id), app)
+    except forms.FormStopped as stop:
+        session.commit()
+        raise HTTPException(409, stop.reason) from stop
+    return _app_out(session, app)
+
+
+@router.get("/applications/{app_id}/form")
+def form_review(app_id: uuid.UUID, session: Session = Depends(db)):
+    app = _own(session, Application, app_id)
+    data = app.form_data or {}
+    fields = {f["id"]: f for f in data.get("fields", [])}
+    return {
+        "hiring_system": data.get("hiring_system"), "consents": data.get("consents", []),
+        "answers": [{"label": fields[k]["label"], "value": v} for k, v in data.get("answers", {}).items() if k in fields],
+        "files": [{"label": fields[k]["label"], "file": "your CV" if v == "cv" else "cover letter"} for k, v in data.get("files", {}).items() if k in fields],
+        "has_screenshot": bool(data.get("screenshot_key")), "submitted_at": data.get("submitted_at"),
+    }
+
+
+@router.get("/applications/{app_id}/form/screenshot")
+def form_screenshot(app_id: uuid.UUID, proof: bool = False, session: Session = Depends(db)):
+    from fastapi.responses import Response
+
+    from app import storage
+
+    app = _own(session, Application, app_id)
+    key = (app.form_data or {}).get("proof_key" if proof else "screenshot_key")
+    if not key:
+        raise HTTPException(404, "Not found")
+    return Response(storage.load(key), media_type="image/png")
+
+
+@router.post("/applications/{app_id}/form/approve", response_model=ApplicationOut)
+def form_approve(app_id: uuid.UUID, session: Session = Depends(db)):
+    """Approve the filled form. It is submitted now if the rules allow, otherwise in the next send window."""
+    from app.services import forms
+
+    app = _own(session, Application, app_id)
+    try:
+        forms.approve_form(session, app)
+        forms.submit_form(session, app)
+    except rules.RuleViolation as v:
+        if not v.retry_later:
+            raise HTTPException(409, v.message) from v
+        session.commit()        # approved and waiting for the window, quota or a free place
+    except forms.FormStopped as stop:
+        session.commit()
+        raise HTTPException(409, stop.reason) from stop
+    return _app_out(session, app)

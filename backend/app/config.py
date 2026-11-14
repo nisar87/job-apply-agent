@@ -48,6 +48,10 @@ class Settings(BaseSettings):
     # Safety: outside production every outgoing application is rewritten to this address.
     sandbox_recipient: str = ""
 
+    # Browser used for web application forms. Empty lets Playwright use its own Chromium.
+    browser_executable: str = ""
+    form_auto_submit_after: int = 5  # clean reviews per hiring system before automatic submission is offered
+
     # Agent limits
     agent_mode: str = "llm"  # llm | playbook
     agent_max_steps: int = 40

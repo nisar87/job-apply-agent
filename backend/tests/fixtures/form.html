@@ -1,0 +1,18 @@
+<!doctype html><html><body>
+<h1>Apply: Cloud Engineer at Donau SE</h1>
+<form action="/submitted" method="post" enctype="multipart/form-data">
+  <label for="first">First name</label><input id="first" name="first_name" required>
+  <label for="last">Last name</label><input id="last" name="last_name" required>
+  <label for="mail">Email</label><input id="mail" type="email" name="email" required>
+  <label for="tel">Phone</label><input id="tel" type="tel" name="phone">
+  <label for="cv">Resume/CV</label><input id="cv" type="file" name="resume" required>
+  <label for="cl">Cover letter</label><textarea id="cl" name="cover_letter"></textarea>
+  <label for="np">Notice period</label><input id="np" name="notice" required>
+  <fieldset><legend>Are you legally authorized to work in Austria?</legend>
+    <label><input type="radio" name="auth" value="1" required> Yes</label>
+    <label><input type="radio" name="auth" value="0"> No</label></fieldset>
+  <label for="gender">Gender</label><select id="gender" name="gender"><option></option><option>Female</option><option>Male</option><option>Prefer not to say</option></select>
+  <label><input type="checkbox" name="privacy" required> I agree to the privacy policy</label>
+  <input type="hidden" name="token" value="abc">
+  <button type="submit">Submit application</button>
+</form></body></html>

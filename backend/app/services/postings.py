@@ -80,6 +80,8 @@ def registered_domain(host: str) -> str:
 def domain_accepts_mail(domain: str) -> bool:
     """Whether the domain resolves at all. A full MX lookup needs a DNS library; this
     catches typos and dead domains, which is the purpose of the check."""
+    if domain.endswith(".example"):
+        return True     # reserved for documentation and demo data
     try:
         socket.getaddrinfo(domain, None)
         return True

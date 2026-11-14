@@ -291,6 +291,11 @@ def mail_status(user_id: uuid.UUID = Depends(current_user_id), session: Session 
 @router.get("/mail/google/start")
 def google_start(user_id: uuid.UUID = Depends(current_user_id)):
     s = get_settings()
+    if s.mail_provider == "fake":
+        # Practice mode: connect the in-memory mailbox under the account's own address.
+        with user_session(user_id) as session:
+            _store_account(session, user_id, session.get(User, user_id).email, "fake", "fake-token", None)
+        return {"url": f"{s.frontend_url}/account?mail=connected"}
     if not s.google_client_id:
         raise HTTPException(503, "Google sign-in for Gmail is not configured on this server")
     params = {

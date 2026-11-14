@@ -23,7 +23,8 @@ def discover(session: Session, llm: LLMClient, campaign: Campaign, *, fetcher: F
     config = get_config(campaign)
     sources = get_sources()
     found, created, errors = 0, 0, []
-    for name in config.sources:
+    names = list(config.sources) + [n for n in sources if n == "demo"]   # demo mode adds its sample source
+    for name in names:
         source = sources.get(name)
         if source is None:
             continue

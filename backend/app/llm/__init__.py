@@ -15,9 +15,9 @@ def get_llm() -> LLMClient:
         return _override
     s = get_settings()
     if s.llm_provider == "fake":
-        from app.llm.fake import FakeLLM
+        from app.llm.demo import demo_llm
 
-        return FakeLLM()
+        return demo_llm()
     from app.llm.gemini import GeminiClient
 
     return GeminiClient()

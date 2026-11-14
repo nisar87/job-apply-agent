@@ -60,12 +60,13 @@ export default function Cvs() {
 
   async function upload(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    const form = new FormData(e.currentTarget);
+    const formEl = e.currentTarget;   // read before awaiting: the event is cleared afterwards
+    const form = new FormData(formEl);
     setBusy(true);
     setError("");
     try {
       await api("/api/cvs", { method: "POST", body: form });
-      e.currentTarget.reset();
+      formEl.reset();
       cvs.reload();
     } catch (err) {
       setError(errorText(err));

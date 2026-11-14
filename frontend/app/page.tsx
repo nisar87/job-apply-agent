@@ -71,7 +71,7 @@ export default function Today() {
                 {stats.data.map((x) => {
                   const max = Math.max(1, ...stats.data!.map((y) => Math.max(y.sent, y.replies)));
                   return (
-                    <div key={x.day} className="flex flex-1 items-end justify-center gap-px" title={`${x.day}: ${x.sent} sent, ${x.replies} replies`}>
+                    <div key={x.day} className="flex h-full flex-1 items-end justify-center gap-px" title={`${x.day}: ${x.sent} sent, ${x.replies} replies`}>
                       <span className="w-1/2 bg-ink" style={{ height: `${(x.sent / max) * 100}%` }} />
                       <span className="w-1/2 bg-sent" style={{ height: `${(x.replies / max) * 100}%` }} />
                     </div>

@@ -225,6 +225,22 @@ class FakeSource:
         return [p for p in self.postings if _matches(f"{p.title} {p.description}", query.keywords)]
 
 
+def demo_postings() -> list[RawPosting]:
+    """Sample postings for demo mode (LLM_PROVIDER=fake), so the app can be tried offline."""
+    today = datetime.now(UTC).date()
+    rows = [
+        ("Backend Engineer (Python)", "Alpenblick Software GmbH", "python, postgresql, docker", "jobs@alpenblick.example"),
+        ("Senior Python Developer", "Donauwerk AG", "python, fastapi, kubernetes", "karriere@donauwerk.example"),
+        ("Data Engineer", "Salzach Analytics", "python, sql, airflow", "hr@salzach.example"),
+        ("Platform Engineer", "Wienzeile Digital", "python, docker", ""),
+        ("SAP Consultant", "Grazer Beratung KG", "sap, abap", "jobs@grazer.example"),
+    ]
+    return [RawPosting(source="demo", source_id=f"demo-{i}", url=f"https://example.com/demo-job-{i}", title=t, company=c,
+                       description=f"{t} at {c}. Remote within Austria. Full-time.\nRequirements: {r}\n"
+                                   + (f"Send your application to {e}\n" if e else "Apply through our careers page.\n"),
+                       location="Vienna", country="at", posted_date=today) for i, (t, c, r, e) in enumerate(rows)]
+
+
 COMPANY_FEED_SOURCES = {"greenhouse", "lever", "personio"}
 _registry: dict[str, JobSource] | None = None
 
@@ -240,4 +256,7 @@ def get_sources() -> dict[str, JobSource]:
         _registry = {
             s.name: s for s in (AdzunaSource(), ArbeitnowSource(), GreenhouseSource(), LeverSource(), PersonioSource())
         }
+        if get_settings().llm_provider == "fake":
+            _registry = {"demo": FakeSource(demo_postings())}
+            _registry["demo"].name = "demo"
     return _registry

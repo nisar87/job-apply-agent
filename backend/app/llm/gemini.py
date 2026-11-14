@@ -93,11 +93,9 @@ class GeminiClient:
         i, o = self._usage(resp)
         calls = [ToolCall(name=fc.name, args=dict(fc.args or {})) for fc in (resp.function_calls or [])]
         raw = resp.candidates[0].content if resp.candidates else None
-        text = ""
-        try:
-            text = resp.text or ""
-        except Exception:
-            text = ""
+        # Join the text parts by hand: resp.text logs a warning when the reply holds tool calls.
+        parts = (raw.parts or []) if raw is not None else []
+        text = "".join(p.text for p in parts if getattr(p, "text", None) and not getattr(p, "thought", False))
         return LLMResult(text=text, tool_calls=calls, input_tokens=i, output_tokens=o, model=model, raw=raw)
 
     def embed(self, texts: list[str]) -> list[list[float]]:

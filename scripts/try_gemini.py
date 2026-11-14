@@ -97,7 +97,8 @@ def main() -> int:
         return out
 
     profile = timed("read the CV", lambda: cv_service.parse_profile(llm, cv_text))
-    print("       name:", profile.get("name"), "| skills:", ", ".join((profile.get("skills") or [])[:10]))
+    print("       name:", profile.get("name"), "| skills:", ", ".join(
+        str(sk.get("name", "")) if isinstance(sk, dict) else str(sk) for sk in (profile.get("skills") or [])[:10]))
 
     fields = timed("read the posting", lambda: posting_service.extract_fields(llm, SAMPLE_TITLE, SAMPLE_COMPANY, SAMPLE_POSTING))
     print("       " + json.dumps(fields, ensure_ascii=False)[:600])

@@ -18,7 +18,7 @@ def prepared(client, llm, **kw):
 def test_tenant_isolation_across_every_endpoint(client, llm):
     a = prepared(client, llm)
     b = make_world(client, llm, email="b@example.com", mail=a.mail)
-    app_id = client.get("/api/applications", headers=a.headers).json()[0]["id"]
+    app_id = client.get("/api/applications?status=awaiting_approval", headers=a.headers).json()[0]["id"]
     cv = client.get("/api/cvs", headers=a.headers).json()[0]
     match_id = client.get("/api/matches?decision=skip", headers=a.headers).json()[0]["id"]
     account_id = client.get("/api/mail/account", headers=a.headers).json()[0]["id"]

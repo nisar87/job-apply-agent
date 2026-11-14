@@ -8,7 +8,8 @@ dependencies = [
   "celery", "redis", "httpx", "google-genai", "python-multipart", "pypdf", "python-docx",
 ]
 [project.optional-dependencies]
-dev = ["pytest", "ruff"]
+dev = ["pytest", "ruff", "playwright"]
+forms = ["playwright"]
 
 [tool.ruff]
 line-length = 110

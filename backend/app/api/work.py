@@ -81,7 +81,8 @@ def list_applications(
         query = query.where(Application.created_at >= since)
     if until:
         query = query.where(Application.created_at <= until)
-    rows = session.execute(query.order_by(func.coalesce(Application.sent_at, Application.created_at).desc()).limit(limit)).scalars()
+    rows = session.execute(query.order_by(func.coalesce(Application.sent_at, Application.created_at).desc(), Application.score.desc().nulls_last(),
+                                         Application.id).limit(limit)).scalars()
     out = [_app_out(session, a) for a in rows]
     if q:
         needle = q.lower()

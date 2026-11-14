@@ -13,8 +13,9 @@ $RunSA     = "jaa-run@$Project.iam.gserviceaccount.com"
 $Registry  = "$Region-docker.pkg.dev/$Project/$Repo"
 $SqlConn   = "${Project}:${Region}:$SqlInst"
 
-# Gmail sign-in uses the OAuth client of the job Google account's project (job-apply-agent-514718).
-$GoogleClientId = "947809586306-f44637cuoi2vd5h6dtlhcvncfhgi2ojf.apps.googleusercontent.com"
+# Gmail sign-in uses this project's own OAuth client (consent screen in Testing; the job mailbox is the
+# test user). Its secret is in Secret Manager as GOOGLE_CLIENT_SECRET.
+$GoogleClientId = "644630290784-j7a8potb2ja59dctu8qipef2cn3r95lo.apps.googleusercontent.com"
 
 # Staging is private: only these addresses can sign up, every application goes to the sandbox address.
 $SignupAllowlist  = "nisar.3dcellular@gmail.com"

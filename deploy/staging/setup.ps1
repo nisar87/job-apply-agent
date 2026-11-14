@@ -1,9 +1,14 @@
 # One-time setup of the private staging environment in its own Firebase / Google Cloud project.
 # Safe to run again: every step skips what already exists. Needs `gcloud auth login` first.
 # Reads GEMINI_API_KEY and GOOGLE_CLIENT_SECRET from the repository's .env; never prints a secret.
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"   # gcloud writes progress to stderr; success is judged by exit codes
 . "$PSScriptRoot\config.ps1"
 $root = Resolve-Path "$PSScriptRoot\..\.."
+$gcloudExe = (Get-Command gcloud.cmd -ErrorAction Stop).Source
+function gcloud {
+    & $gcloudExe @args 2>&1 | ForEach-Object { if ($_ -is [System.Management.Automation.ErrorRecord]) { Write-Host $_.ToString() } else { $_ } }
+    if ($LASTEXITCODE -ne 0) { throw "gcloud $($args -join ' ') failed (exit $LASTEXITCODE)" }
+}
 
 function Has($cmd) { & cmd /c "$cmd >nul 2>nul"; return $LASTEXITCODE -eq 0 }
 function RandomSecret([int]$n = 40) {
@@ -81,8 +86,12 @@ if (-not $secretsExist) {
     PutSecret TOKEN_ENCRYPTION_KEY $fernet.Trim()
     PutSecret SCHEDULER_TOKEN (RandomSecret 48)
 }
-PutSecret GEMINI_API_KEY (EnvValue GEMINI_API_KEY)
-PutSecret GOOGLE_CLIENT_SECRET (EnvValue GOOGLE_CLIENT_SECRET)
+if (-not (Has "gcloud secrets describe GEMINI_API_KEY --project $Project")) { PutSecret GEMINI_API_KEY (EnvValue GEMINI_API_KEY) }
+# GOOGLE_CLIENT_SECRET belongs to this project's own OAuth client (created in the console); it is stored
+# once with: gcloud secrets create GOOGLE_CLIENT_SECRET --data-file=<file holding only the secret>
+if (-not (Has "gcloud secrets describe GOOGLE_CLIENT_SECRET --project $Project")) {
+    Write-Host "NOTE: store GOOGLE_CLIENT_SECRET for this project's OAuth client before deploying"
+}
 
 Write-Host "== GitHub Actions: keyless sign-in (Workload Identity Federation)"
 $DeploySA = "jaa-deploy@$Project.iam.gserviceaccount.com"

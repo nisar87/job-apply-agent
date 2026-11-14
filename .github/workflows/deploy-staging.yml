@@ -20,7 +20,7 @@ env:
   SQL_CONN: job-apply-agent-staging:europe-west1:jaa-db
   RUN_SA: jaa-run@job-apply-agent-staging.iam.gserviceaccount.com
   BUCKET: job-apply-agent-staging-files
-  GOOGLE_CLIENT_ID: 947809586306-f44637cuoi2vd5h6dtlhcvncfhgi2ojf.apps.googleusercontent.com
+  GOOGLE_CLIENT_ID: 644630290784-j7a8potb2ja59dctu8qipef2cn3r95lo.apps.googleusercontent.com
   SIGNUP_ALLOWLIST: nisar.3dcellular@gmail.com
   SANDBOX_RECIPIENT: nisar_87@hotmail.com
 
@@ -38,7 +38,7 @@ jobs:
 
       - uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github/providers/job-apply-agent
+          workload_identity_provider: projects/644630290784/locations/global/workloadIdentityPools/github/providers/job-apply-agent
           service_account: jaa-deploy@job-apply-agent-staging.iam.gserviceaccount.com
 
       - uses: google-github-actions/setup-gcloud@v2

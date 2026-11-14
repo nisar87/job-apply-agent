@@ -1,6 +1,21 @@
 # Build status
 
-Last updated 14 November 2026, after the first live runs.
+Last updated 15 November 2026, after the private staging deployment.
+
+## Since the first live runs (15 November 2026)
+
+| Added | Notes |
+| --- | --- |
+| Searches built from the CV | A search without keywords uses the CV's own search terms; gaps are shown only as optional suggestions; keywords match whole terms |
+| Country selection | Pick countries by name, strict filter, optional remote-from-elsewhere, Adzuna asked per country |
+| Database migrations | Alembic baseline with row-level security; `python -m app.migrate` |
+| No Redis needed | `REDIS_URL=postgres` keeps locks, rate limits and the page cache in Postgres |
+| Private staging, deployed on every push to main | See `docs/staging.md`. Verified live: health, invite-only sign-up, noindex, CV upload and reading, search creation, discovery, agent run, scheduler tick |
+
+161 backend tests pass, with Redis and with the Postgres stand-in.
+
+Still to do on staging: connect Gmail there (the owner approves Google's screen), then send one practice
+application to the sandbox inbox. Adzuna still needs a key; Arbeitnow alone has few remote .NET jobs.
 
 ## What exists and is tested
 
@@ -69,7 +84,6 @@ What the live runs showed that is not a bug:
 
 ## Known gaps
 
-- No database migrations yet; `python -m app.schema` creates tables but does not alter them.
 - Embeddings are stored as arrays and compared in Python, not with pgvector.
 - The company directory for per-company feeds starts empty; nothing fills it automatically yet.
 - Notice emails need an SMTP service to be configured; without one, notices show only in the app.

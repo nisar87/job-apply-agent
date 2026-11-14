@@ -156,7 +156,9 @@ def write_checked(llm: LLMClient, **kw) -> tuple[dict, dict]:
     draft = write_application(llm, **kw)
     checks = run_checks(llm, draft, **check_kw)
     if not checks["passed"]:
-        draft = write_application(llm, **kw, feedback=checks["problems"])
+        first_problems = checks["problems"]
+        draft = write_application(llm, **kw, feedback=first_problems)
         checks = run_checks(llm, draft, **check_kw)
         checks["rewritten"] = True
+        checks["first_problems"] = first_problems   # kept so the reasons for rewrites can be reviewed
     return draft, checks

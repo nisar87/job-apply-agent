@@ -87,14 +87,29 @@ def extract_text(name: str, data: bytes) -> str:
 
 
 def profile_text(profile: dict) -> str:
-    """Flat text of a profile, used for embeddings and prompts."""
-    parts = [profile.get("summary", "")]
-    parts += [f"{s.get('name', '')} {s.get('years', '')}" for s in profile.get("skills", [])]
-    for role in profile.get("roles", []):
-        parts.append(f"{role.get('title', '')} at {role.get('company', '')}")
-        parts += role.get("achievements", [])
-    parts += [f"{lang.get('name', '')} {lang.get('level', '')}" for lang in profile.get("languages", [])]
-    parts += profile.get("education", []) + profile.get("certifications", [])
+    """Flat text of a profile, used for embeddings, prompts and the fact check. It must carry every
+    fact an application may state, or the fact check rejects true claims."""
+    def join(*values) -> str:
+        return " ".join(str(v) for v in values if v not in (None, "", []))
+
+    parts = [join("Name:", profile.get("name")) if profile.get("name") else "",
+             join("Location:", profile.get("location")) if profile.get("location") else "",
+             profile.get("summary") or ""]
+    if profile.get("total_years_experience"):
+        parts.append(f"Total professional experience: {profile['total_years_experience']:g} years")
+    skills = [join(s.get("name"), f"({s['years']:g} years)" if s.get("years") else "") for s in profile.get("skills") or []
+              if isinstance(s, dict)]
+    if skills:
+        parts.append("Skills: " + ", ".join(skills))
+    for role in profile.get("roles") or []:
+        period = join(role.get("start"), "to", role.get("end") or "today") if role.get("start") else join(role.get("end"))
+        parts.append(join(role.get("title"), "at", role.get("company")) + (f" ({period})" if period else ""))
+        parts += [a for a in role.get("achievements") or [] if a]
+    langs = [join(lang.get("name"), lang.get("level")) for lang in profile.get("languages") or [] if isinstance(lang, dict)]
+    if langs:
+        parts.append("Languages: " + ", ".join(langs))
+    parts += [e for e in profile.get("education") or [] if e]
+    parts += [c for c in profile.get("certifications") or [] if c]
     return "\n".join(p for p in parts if p)
 
 

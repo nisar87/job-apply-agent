@@ -123,6 +123,8 @@ def main() -> int:
     print("-" * 60)
     print(f"Words: {len((draft.get('body') or '').split())}; checks passed: {checks['passed']}"
           + ("; rewritten once" if checks.get("rewritten") else ""))
+    for p in checks.get("first_problems", []):
+        print("  first draft was rejected for:", p)
     for p in checks["problems"]:
         print("  problem:", p)
     return 0 if checks["passed"] else 2

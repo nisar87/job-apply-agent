@@ -92,6 +92,7 @@ class GeminiClient:
     ) -> LLMResult:
         model = self._model(tier)
         contents = []
+        answering_tools = False
         for m in messages:
             if m["role"] == "user":
                 contents.append(types.Content(role="user", parts=[types.Part.from_text(text=m["text"])]))
@@ -103,12 +104,13 @@ class GeminiClient:
                 else:
                     contents.append(types.Content(role="model", parts=[types.Part.from_text(text=m.get("text", ""))]))
             elif m["role"] == "tool":
-                contents.append(
-                    types.Content(
-                        role="user",
-                        parts=[types.Part.from_function_response(name=m["name"], response={"result": m["result"]})],
-                    )
-                )
+                part = types.Part.from_function_response(name=m["name"], response={"result": m["result"]})
+                # Gemini wants the answers to all tool calls of one model turn together in one message.
+                if answering_tools:
+                    contents[-1].parts.append(part)
+                else:
+                    contents.append(types.Content(role="user", parts=[part]))
+            answering_tools = m["role"] == "tool"
         declarations = [
             types.FunctionDeclaration(name=t.name, description=t.description, parameters_json_schema=t.parameters)
             for t in tools

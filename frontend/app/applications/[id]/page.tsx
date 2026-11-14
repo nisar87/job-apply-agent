@@ -11,7 +11,7 @@ import type { Application } from "@/lib/types";
 type Detail = {
   application: Application;
   posting: { title: string; url: string; description: string; fields: Record<string, unknown> };
-  match: { total_score: number; reason: string; rubric: { requirements?: { requirement: string; status: string; evidence?: string }[]; gaps?: string[]; cv_label?: string; all_scores?: { cv: string; total: number }[] } } | null;
+  match: { total_score: number; reason: string; rubric: { requirements?: { requirement: string; status: string; evidence?: string }[]; gaps?: string[]; suggestions?: string[]; cv_label?: string; all_scores?: { cv: string; total: number }[] } } | null;
   cv_version_id: string | null;
   messages: { id: string; direction: string; sender: string; subject: string; body: string; received_at: string; category: string | null; summary: string }[];
   timeline: { id: string; actor: string; tool: string; reason: string; created_at: string }[];
@@ -110,6 +110,12 @@ export default function ApplicationPage() {
                     </li>
                   ))}
                 </ul>
+                {(data.match.rubric.suggestions?.length ?? 0) > 0 && (
+                  <p className="mt-3 text-xs text-slate">
+                    Missing items are only suggestions. If you have done one of them, add it to your CV and the next
+                    scores will count it. If not, leave your CV as it is: the search looks for jobs that fit what you have.
+                  </p>
+                )}
                 {data.cv_version_id && (
                   <p className="mt-3"><a className="underline" href="#" onClick={async (e) => {
                     e.preventDefault();

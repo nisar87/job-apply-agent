@@ -128,13 +128,20 @@ def create_campaign(
     approval_mode: str = "review", state: str = "paused",
 ) -> Campaign:
     _check_user_total(session, user_id, config, None)
+    keywords_from_cv = False
+    if not config.keywords:
+        # No roles given: search for what the user's CVs show they can do.
+        from app.services.cvs import search_keywords
+
+        config = config.model_copy(update={"keywords": search_keywords(session, user_id)})
+        keywords_from_cv = bool(config.keywords)
     campaign = Campaign(
         user_id=user_id, name=name, config=config.model_dump(mode="json"), approval_mode=approval_mode, state=state
     )
     session.add(campaign)
     session.flush()
     audit.record(session, user_id=user_id, actor=actor, tool="create_campaign", entity_id=campaign.id,
-                 input={"name": name}, result={"state": state})
+                 input={"name": name}, result={"state": state, "keywords_from_cv": keywords_from_cv})
     return campaign
 
 

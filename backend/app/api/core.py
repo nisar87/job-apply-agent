@@ -83,6 +83,12 @@ def cv_profile(cv_id: uuid.UUID, session: Session = Depends(db, scope="function"
     return {"profile": version.profile if version else {}, "file_name": version.file_name if version else ""}
 
 
+@router.get("/cvs/search-keywords")
+def cv_search_keywords(user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
+    """Search terms from the user's CVs, for filling a search with the skills they really have."""
+    return {"keywords": cv_service.search_keywords(session, user_id)}
+
+
 @router.get("/cv-versions/{version_id}/file")
 def cv_file(version_id: uuid.UUID, session: Session = Depends(db, scope="function")):
     from app.models import CVVersion

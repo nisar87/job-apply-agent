@@ -9,6 +9,7 @@ export type Application = {
 export type Match = {
   id: string; posting_id: string; decision: string; reason: string; total_score: number | null;
   title: string; company: string; url: string; route: string; created_at: string;
+  rubric?: { suggestions?: string[] };
 };
 
 export type Campaign = {

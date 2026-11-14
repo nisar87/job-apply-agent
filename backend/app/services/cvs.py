@@ -1,6 +1,7 @@
 """CV intake, structured profiles and the fact sheet (master document, section 8)."""
 
 import io
+import re
 import uuid
 
 from sqlalchemy import select
@@ -47,6 +48,13 @@ PROFILE_SCHEMA = {
         "certifications": {"type": "array", "items": {"type": "string"}},
         "links": {"type": "array", "items": {"type": "string"}},
         "total_years_experience": {"type": "number"},
+        "search_keywords": {
+            "type": "array", "items": {"type": "string"},
+            "description": "Up to 12 short search terms a matching job posting would contain, taken only from what "
+                           "the CV shows: languages, frameworks, databases and tools, plus the platform they belong "
+                           "to (for example '.NET' as well as 'C#', 'Java' as well as 'Spring'). Prefer technologies "
+                           "over job titles; never a generic title alone such as 'Software Engineer'. No soft skills.",
+        },
     },
     "required": ["name", "summary", "skills", "roles"],
 }
@@ -111,6 +119,67 @@ def profile_text(profile: dict) -> str:
     parts += [e for e in profile.get("education") or [] if e]
     parts += [c for c in profile.get("certifications") or [] if c]
     return "\n".join(p for p in parts if p)
+
+
+MAX_SEARCH_KEYWORDS = 12
+# Skills that describe how someone works, not what a posting searches for. Used only when a profile
+# was parsed before it carried its own search keywords.
+_SOFT_SKILLS = {
+    "problem solving", "problem-solving", "communication", "leadership", "teamwork", "team player",
+    "time management", "collaboration", "critical thinking", "adaptability", "creativity", "attention to detail",
+    "self-motivated", "mentoring", "stakeholder management", "presentation skills",
+}
+
+
+_VENDOR = re.compile(r"^(microsoft|google|amazon|oracle|apple|ibm)\s+", re.IGNORECASE)
+
+
+def _forms(term: str) -> list[str]:
+    """The term as postings write it: "Microsoft SQL Server" is searched as "SQL Server", and a
+    .NET technology ("ASP.NET", "VB.NET") also brings in the platform ".NET"."""
+    term = _VENDOR.sub("", " ".join(term.split()).strip(" -"))
+    forms = [term]
+    if re.search(r"\w\.net\b", term, re.IGNORECASE):
+        forms.append(".NET")
+    return forms
+
+
+def search_keywords_of(profile: dict) -> list[str]:
+    """Search terms for one CV profile: what the person can do, never what they cannot.
+
+    The terms read from the CV (`search_keywords`) come first, then the profile's skills, which may
+    have been added after parsing. Skills are split into single terms ("C# and VB.NET" becomes
+    "C#", "VB.NET") and soft skills are left out."""
+    raw = [str(k) for k in profile.get("search_keywords") or [] if str(k).strip()]
+    for skill in profile.get("skills") or []:
+        name = str(skill.get("name", "") if isinstance(skill, dict) else skill)
+        name = re.sub(r"\(.*?\)", " ", name)
+        raw += re.split(r"\s*(?:,|/|;|\band\b|&)\s*", name)
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        for term in _forms(item):
+            key = term.lower()
+            if not term or len(term) > 40 or key in seen or key in _SOFT_SKILLS:
+                continue
+            seen.add(key)
+            out.append(term)
+    return out[:MAX_SEARCH_KEYWORDS]
+
+
+def search_keywords(session: Session, user_id: uuid.UUID) -> list[str]:
+    """Search terms from the user's active CVs, default CV first. Used when a search has no keywords
+    of its own, so the agent looks for jobs that fit the skills the user really has."""
+    cvs = sorted(list_cvs(session, user_id, active_only=True), key=lambda c: not c.is_default)
+    out: list[str] = []
+    for cv in cvs:
+        version = current_version(session, cv)
+        if version is None:
+            continue
+        for term in [*(cv.keywords or []), *search_keywords_of(version.profile or {})]:
+            if term.lower() not in {t.lower() for t in out}:
+                out.append(term)
+    return out[:MAX_SEARCH_KEYWORDS]
 
 
 def parse_profile(llm: LLMClient, text: str) -> dict:

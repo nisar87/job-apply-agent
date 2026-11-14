@@ -113,7 +113,14 @@ function Log() {
                   <td>{m.company}</td>
                   <td><a className="underline" href={m.url} target="_blank" rel="noreferrer">{m.title}</a></td>
                   <td>{m.total_score ?? ""}</td>
-                  <td>{m.reason}</td>
+                  <td>
+                    {m.reason}
+                    {(m.rubric?.suggestions?.length ?? 0) > 0 && (
+                      <span className="block text-xs text-slate">
+                        Not on your CV: {m.rubric!.suggestions!.join("; ")}. Add one only if you have really done it.
+                      </span>
+                    )}
+                  </td>
                   <td>{m.total_score !== null && m.route === "email" && (
                     <button className="btn btn-quiet" disabled={busy === m.id} onClick={() => applyAnyway(m.id)}>Apply anyway</button>
                   )}</td>

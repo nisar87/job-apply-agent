@@ -4,6 +4,7 @@ Tier 1 are aggregator APIs; tier 2 are public per-company feeds of hiring system
 Adding a country means enabling or adding sources here; the agent does not change.
 """
 
+import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
@@ -49,11 +50,21 @@ class JobSource(Protocol):
     def search(self, query: SearchQuery) -> list[RawPosting]: ...
 
 
-def _matches(text: str, keywords: list[str]) -> bool:
+def keyword_pattern(keyword: str) -> re.Pattern:
+    """A keyword as a whole term: "git" does not match "digital", "java" does not match "javascript".
+    A keyword that starts or ends with a symbol keeps that side open, so ".net" still matches "asp.net"."""
+    k = keyword.strip().lower()
+    left = r"(?<![a-z0-9])" if k[:1].isalnum() else ""
+    right = r"(?![a-z0-9])" if k[-1:].isalnum() else ""
+    return re.compile(left + re.escape(k) + right)
+
+
+def matches_keywords(text: str, keywords: list[str]) -> bool:
+    keywords = [k for k in keywords if k.strip()]
     if not keywords:
         return True
     low = text.lower()
-    return any(k.lower() in low for k in keywords)
+    return any(keyword_pattern(k).search(low) for k in keywords)
 
 
 def _date(value) -> date | None:
@@ -113,7 +124,7 @@ class ArbeitnowSource:
         out = []
         for r in resp.json().get("data", []):
             text = html_to_text(r.get("description", ""))
-            if not _matches(f"{r.get('title', '')} {text} {' '.join(r.get('tags', []))}", query.keywords):
+            if not matches_keywords(f"{r.get('title', '')} {text} {' '.join(r.get('tags', []))}", query.keywords):
                 continue
             out.append(RawPosting(
                 source=self.name, source_id=str(r.get("slug")), url=r.get("url", ""), title=r.get("title", ""),
@@ -138,7 +149,7 @@ class GreenhouseSource:
                 continue
             for r in resp.json().get("jobs", []):
                 text = html_to_text(html_to_text(r.get("content", "")))  # content is HTML-escaped HTML
-                if not _matches(f"{r.get('title', '')} {text}", query.keywords):
+                if not matches_keywords(f"{r.get('title', '')} {text}", query.keywords):
                     continue
                 out.append(RawPosting(
                     source=self.name, source_id=f"{slug}:{r.get('id')}", url=r.get("absolute_url", ""),
@@ -165,7 +176,7 @@ class LeverSource:
                 text = r.get("descriptionPlain", "") + "\n" + "\n".join(
                     html_to_text(item.get("content", "")) for item in r.get("lists", [])
                 )
-                if not _matches(f"{r.get('text', '')} {text}", query.keywords):
+                if not matches_keywords(f"{r.get('text', '')} {text}", query.keywords):
                     continue
                 cats = r.get("categories") or {}
                 mode = (r.get("workplaceType") or "").lower()
@@ -203,7 +214,7 @@ class PersonioSource:
                     f"{(d.findtext('name') or '').strip()}\n{html_to_text(d.findtext('value') or '')}"
                     for d in pos.iter("jobDescription")
                 )
-                if not _matches(f"{t('name')} {text}", query.keywords):
+                if not matches_keywords(f"{t('name')} {text}", query.keywords):
                     continue
                 out.append(RawPosting(
                     source=self.name, source_id=f"{slug}:{t('id')}", url=f"https://{slug}.jobs.personio.de/job/{t('id')}",
@@ -222,7 +233,7 @@ class FakeSource:
         self.postings = postings or []
 
     def search(self, query: SearchQuery) -> list[RawPosting]:
-        return [p for p in self.postings if _matches(f"{p.title} {p.description}", query.keywords)]
+        return [p for p in self.postings if matches_keywords(f"{p.title} {p.description}", query.keywords)]
 
 
 def demo_postings() -> list[RawPosting]:

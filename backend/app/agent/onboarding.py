@@ -209,6 +209,15 @@ def onboarding_turn(session: Session, llm: LLMClient, user_id: uuid.UUID, histor
     patch, dropped = stated_settings(data.get("config") or {}, data.get("evidence") or [], history)
     config, problems = merge_config(draft or {}, patch)
     reply = data.get("reply") or "Tell me what kind of jobs you are looking for."
+    keywords_from_cv = False
+    if not config.get("keywords"):
+        # The user named no roles: search for what their CVs show they can do, and say so.
+        cv_terms = cv_service.search_keywords(session, user_id)
+        if cv_terms:
+            config["keywords"] = cv_terms
+            keywords_from_cv = True
+            reply += (f" Since you did not name roles, I will look for jobs that match your CV: {', '.join(cv_terms)}."
+                      " Tell me if you want something else.")
     if not data.get("open_question", False) and not problems:
         summary = describe_settings(config)
         if summary:
@@ -227,7 +236,7 @@ def onboarding_turn(session: Session, llm: LLMClient, user_id: uuid.UUID, histor
     return {
         "reply": reply, "config": config, "campaign_name": data.get("campaign_name") or "My job search",
         "preferences": [p for p in (data.get("preferences") or []) if str(p).strip()][:10],
-        "not_taken_over": dropped,
+        "not_taken_over": dropped, "keywords_from_cv": keywords_from_cv,
         "status": status, "ready": not status["missing"] and not problems and not data.get("open_question", False)
         and bool(config.get("keywords")),
     }

@@ -41,6 +41,17 @@ function Editor({ campaign, onSaved }: { campaign: Campaign; onSaved: () => void
     }
   }
 
+  async function fillFromCv() {
+    setError("");
+    try {
+      const res = await api<{ keywords: string[] }>("/api/cvs/search-keywords");
+      if (res.keywords.length === 0) setError("Upload a CV first: its skills become the search keywords.");
+      else set("keywords", res.keywords);
+    } catch (e) {
+      setError(errorText(e));
+    }
+  }
+
   async function run(kind: string) {
     setRunning(kind);
     setError("");
@@ -69,7 +80,10 @@ function Editor({ campaign, onSaved }: { campaign: Campaign; onSaved: () => void
       <p className="mt-1 text-xs text-slate">A dry run finds jobs and writes drafts but sends nothing.</p>
       <ErrorNote message={error} />
       <div className="mt-5 grid gap-5 md:grid-cols-2">
-        <Field label="Keywords" hint="Comma separated"><input className="field" value={c.keywords.join(", ")} onChange={(e) => set("keywords", list(e.target.value))} /></Field>
+        <Field label="Keywords" hint="Comma separated. Empty means the skills on your CVs">
+          <input className="field" value={c.keywords.join(", ")} onChange={(e) => set("keywords", list(e.target.value))} />
+          <button type="button" className="btn btn-quiet mt-2 text-xs" onClick={fillFromCv}>Use the skills on my CV</button>
+        </Field>
         <Field label="Countries" hint="Two-letter codes, for example at, de"><input className="field" value={c.countries.join(", ")} onChange={(e) => set("countries", list(e.target.value))} /></Field>
         <Field label="Work mode" hint="remote, hybrid, onsite. Empty means any"><input className="field" value={c.work_modes.join(", ")} onChange={(e) => set("work_modes", list(e.target.value))} /></Field>
         <Field label="Contract type" hint="full_time, part_time, contract, internship"><input className="field" value={c.contract_types.join(", ")} onChange={(e) => set("contract_types", list(e.target.value))} /></Field>

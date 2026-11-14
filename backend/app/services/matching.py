@@ -198,6 +198,19 @@ def score_cv(llm: LLMClient, posting: Posting, version: CVVersion, preferences: 
     return llm.generate_structured(prompt, SCORE_SCHEMA, task="score_job").data or {}
 
 
+def suggestions(rubric: dict, limit: int = 5) -> list[str]:
+    """Requirements the CV does not show, offered to the user as optional additions.
+
+    These are never actions the agent takes: the user adds one to their CV only if they have really
+    done it. The search itself already targets the skills the CV does show."""
+    out = []
+    for r in rubric.get("requirements") or []:
+        text = str(r.get("requirement", "")).strip()
+        if text and r.get("status") in ("missing", "partial") and text not in out:
+            out.append(text)
+    return out[:limit]
+
+
 def choose_cv(scored: list[dict], threshold: float) -> dict | None:
     """`scored` items: {cv, version, total, keyword}. Rules in order (section 8)."""
     passing = [s for s in scored if s["total"] >= threshold]
@@ -255,7 +268,8 @@ def evaluate(
     best = pick or max(scored, key=lambda s: s["total"])
     match.cv_version_id = best["version"].id
     match.rubric = {**best["rubric"], "cv_label": best["cv"].label,
-                    "all_scores": [{"cv": s["cv"].label, "total": s["total"]} for s in scored]}
+                    "all_scores": [{"cv": s["cv"].label, "total": s["total"]} for s in scored],
+                    "suggestions": suggestions(best["rubric"])}
     match.total_score, match.neutral_score = best["total"], best["neutral"]
     if pick is None:
         match.decision = "skip"

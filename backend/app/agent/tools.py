@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import audit
+from app.connectors.sources import matches_keywords
 from app.llm.base import LLMClient, ToolSpec
 from app.models import Application, Campaign, Match, Posting, Preference, User
 from app.services import applications as app_service
@@ -80,8 +81,7 @@ def list_candidates(ctx: AgentContext, limit: int = 30) -> dict:
     q = select(Posting).where(Posting.is_open.is_(True), Posting.id.not_in(seen)).order_by(Posting.first_seen.desc()).limit(400)
     pool = list(ctx.session.execute(q).scalars())
     if config.keywords:
-        kws = [k.lower() for k in config.keywords]
-        pool = [p for p in pool if any(k in f"{p.title} {p.description}".lower() for k in kws)] or pool
+        pool = [p for p in pool if matches_keywords(f"{p.title} {p.description}", config.keywords)] or pool
     # Code-only filters first: postings that fail them are recorded as skipped without a model call
     # and without spending one of the run's steps.
     facts, passing, filtered = cv_service.get_fact_sheet(ctx.session, ctx.user.id), [], 0

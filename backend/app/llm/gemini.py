@@ -1,12 +1,20 @@
 """Gemini implementation of the LLM interface, using the Google Gen AI SDK."""
 
 import json
+import logging
+import time
 
+import httpx
 from google import genai
+from google.genai import errors as genai_errors
 from google.genai import types
 
 from app.config import get_settings
 from app.llm.base import LLMResult, ToolCall, ToolSpec
+
+log = logging.getLogger(__name__)
+RETRY_CODES = {408, 429, 500, 502, 503, 504}
+RETRY_WAITS = (2, 6, 15)
 
 
 class GeminiClient:
@@ -27,13 +35,30 @@ class GeminiClient:
         usage = getattr(resp, "usage_metadata", None)
         if usage is None:
             return 0, 0
-        return int(usage.prompt_token_count or 0), int(usage.candidates_token_count or 0)
+        # Reasoning tokens are billed as output.
+        out = int(usage.candidates_token_count or 0) + int(getattr(usage, "thoughts_token_count", 0) or 0)
+        return int(usage.prompt_token_count or 0), out
+
+    def _call(self, fn):
+        """Run one API call, retrying the errors that pass on their own (rate limit, overload, network)."""
+        for wait in (*RETRY_WAITS, None):
+            try:
+                return fn()
+            except genai_errors.APIError as exc:
+                if wait is None or getattr(exc, "code", None) not in RETRY_CODES:
+                    raise
+                log.warning("Gemini answered %s, retrying in %ss", getattr(exc, "code", "?"), wait)
+            except (httpx.TransportError, OSError) as exc:
+                if wait is None:
+                    raise
+                log.warning("Gemini call failed (%s), retrying in %ss", type(exc).__name__, wait)
+            time.sleep(wait)
 
     def generate(self, prompt: str, *, system: str | None = None, tier: str = "fast", task: str = "") -> LLMResult:
         model = self._model(tier)
-        resp = self._client.models.generate_content(
+        resp = self._call(lambda: self._client.models.generate_content(
             model=model, contents=prompt, config=types.GenerateContentConfig(system_instruction=system)
-        )
+        ))
         i, o = self._usage(resp)
         return LLMResult(text=resp.text or "", input_tokens=i, output_tokens=o, model=model)
 
@@ -41,18 +66,25 @@ class GeminiClient:
         self, prompt: str, schema: dict, *, system: str | None = None, tier: str = "fast", task: str = ""
     ) -> LLMResult:
         model = self._model(tier)
-        resp = self._client.models.generate_content(
-            model=model,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=system,
-                response_mime_type="application/json",
-                response_json_schema=schema,
-            ),
+        config = types.GenerateContentConfig(
+            system_instruction=system, response_mime_type="application/json", response_json_schema=schema,
         )
-        i, o = self._usage(resp)
-        text = resp.text or "{}"
-        return LLMResult(text=text, data=json.loads(text), input_tokens=i, output_tokens=o, model=model)
+        i = o = 0
+        for attempt in (1, 2):
+            resp = self._call(lambda: self._client.models.generate_content(model=model, contents=prompt, config=config))
+            ti, to = self._usage(resp)
+            i, o = i + ti, o + to
+            text = resp.text or "{}"
+            try:
+                data = json.loads(text)
+            except json.JSONDecodeError:
+                # A cut-off or malformed answer: ask once more, then give up.
+                if attempt == 2:
+                    raise
+                log.warning("Gemini returned invalid JSON for task %s, asking again", task)
+                continue
+            return LLMResult(text=text, data=data, input_tokens=i, output_tokens=o, model=model)
+        raise RuntimeError("unreachable")
 
     def generate_with_tools(
         self, messages: list[dict], tools: list[ToolSpec], *, system: str | None = None,
@@ -81,7 +113,7 @@ class GeminiClient:
             types.FunctionDeclaration(name=t.name, description=t.description, parameters_json_schema=t.parameters)
             for t in tools
         ]
-        resp = self._client.models.generate_content(
+        resp = self._call(lambda: self._client.models.generate_content(
             model=model,
             contents=contents,
             config=types.GenerateContentConfig(
@@ -89,7 +121,7 @@ class GeminiClient:
                 tools=[types.Tool(function_declarations=declarations)],
                 automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
             ),
-        )
+        ))
         i, o = self._usage(resp)
         calls = [ToolCall(name=fc.name, args=dict(fc.args or {})) for fc in (resp.function_calls or [])]
         raw = resp.candidates[0].content if resp.candidates else None
@@ -101,5 +133,5 @@ class GeminiClient:
     def embed(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
-        resp = self._client.models.embed_content(model=self._embed_model, contents=texts)
+        resp = self._call(lambda: self._client.models.embed_content(model=self._embed_model, contents=texts))
         return [list(e.values) for e in resp.embeddings]

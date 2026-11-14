@@ -19,9 +19,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from app.config import get_settings
 from fastapi.testclient import TestClient
 from try_gemini import SAMPLE_CV
+
+from app.config import get_settings
 
 FAILS: list[str] = []
 
@@ -140,8 +141,9 @@ def main() -> int:
     def sample_source():
         # Live postings rarely print an email address, so three sample postings that do are added.
         # They make sure the email route (draft, send, replies) is exercised on every run.
-        from app.connectors import sources as src
         from try_gemini import SAMPLE_COMPANY, SAMPLE_POSTING, SAMPLE_TITLE
+
+        from app.connectors import sources as src
 
         today = datetime.now(UTC).date()
         rows = [

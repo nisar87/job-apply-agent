@@ -7,6 +7,9 @@ prints what came back. Cost: a fraction of a cent.
 """
 
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
 
 from app.config import get_settings
 from app.llm.base import ToolSpec

@@ -10,3 +10,6 @@ node_modules/
 .ruff_cache/
 storage/
 *.whl
+dump.rdb
+gemini-check-log.txt
+*.bak

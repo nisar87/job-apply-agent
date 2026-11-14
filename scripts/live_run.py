@@ -137,8 +137,36 @@ def main() -> int:
 
     setup = step("setup chat (plain-language instructions)")(setup_chat) or {}
 
+    def sample_source():
+        # Live postings rarely print an email address, so three sample postings that do are added.
+        # They make sure the email route (draft, send, replies) is exercised on every run.
+        from app.connectors import sources as src
+        from try_gemini import SAMPLE_COMPANY, SAMPLE_POSTING, SAMPLE_TITLE
+
+        today = datetime.now(UTC).date()
+        rows = [
+            (SAMPLE_TITLE, SAMPLE_COMPANY, SAMPLE_POSTING),
+            ("Backend Engineer Python (all genders), remote", "Traunsee Data GmbH",
+             "Traunsee Data GmbH builds reporting tools for energy suppliers. We need a Backend Engineer.\n"
+             "Requirements: 4+ years of Python, Django or FastAPI, PostgreSQL, automated testing with pytest, "
+             "fluent German and English.\nNice to have: AWS.\nFully remote within Austria or Germany, full-time.\n"
+             "Apply by email to karriere@traunsee-data.example, attention Mr. Paul Gruber."),
+            ("Python Developer, Payments", "Innufer Pay AG",
+             "Innufer Pay AG processes card payments for online shops. Join us as a Python Developer.\n"
+             "You bring: 3 years of Python, experience with payment APIs, Redis and Celery, Docker.\n"
+             "We work remotely across Austria. Full-time.\nSend your CV to jobs@innufer-pay.example."),
+        ]
+        sample = src.FakeSource([src.RawPosting(
+            source="sample", source_id=f"sample-{i}", url=f"https://example.com/sample-job-{i}", title=t, company=c,
+            description=d, location="Remote", country="at", posted_date=today) for i, (t, c, d) in enumerate(rows)])
+        sample.name = "sample"
+        src.set_sources({**src.get_sources(), "sample": sample})
+
+    step("add three sample postings with an email address")(sample_source)
+
     def make_campaign():
-        config = {**(setup.get("config") or {}), "keywords": ["python"], "countries": ["de"], "sources": ["arbeitnow"],
+        config = {**(setup.get("config") or {}), "keywords": ["python"], "countries": ["de"],
+                  "sources": ["sample", "arbeitnow"],
                   "max_posting_age_days": 30}
         c = call("post", "/api/campaigns", json={"name": "Live test", "state": "active", "config": config,
                                                   "preferences": setup.get("preferences") or []})

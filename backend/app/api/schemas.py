@@ -3,7 +3,7 @@
 import uuid
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 class Out(BaseModel):
@@ -30,6 +30,18 @@ class CampaignOut(Out):
     approval_mode: str
     auto_above_score: int
     created_at: datetime
+
+    @field_validator("config")
+    @classmethod
+    def _complete(cls, v: dict) -> dict:
+        """Every setting with its default filled in, so a search saved before a setting existed shows
+        the value the agent really uses."""
+        from app.services.campaigns import CampaignConfig
+
+        try:
+            return CampaignConfig.model_validate(v or {}).model_dump(mode="json")
+        except ValueError:
+            return v
 
 
 class ApplicationOut(Out):

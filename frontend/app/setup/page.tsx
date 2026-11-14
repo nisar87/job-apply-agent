@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { useCountries } from "@/components/CountryPicker";
 import Shell from "@/components/Shell";
 import { ErrorNote, errorText } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -59,6 +60,7 @@ export default function Setup() {
     }
   }
 
+  const { name: countryName } = useCountries();
   const c = last?.config;
   return (
     <Shell title="Setup chat">
@@ -85,7 +87,8 @@ export default function Setup() {
             <dl className="mt-2 space-y-2">
               {[
                 ["Looking for", c.keywords.join(", ") || "not said yet"],
-                ["Countries", c.countries.join(", ")],
+                ["Countries", c.countries.length ? c.countries.map(countryName).join(", ") : "anywhere"],
+                ...(c.countries.length && !c.remote_outside_countries ? [["Remote elsewhere", "no"]] : []),
                 ["Work mode", c.work_modes.join(", ") || "any"],
                 ["Per day", String(c.daily_quota)],
                 ["Send window", `${c.send_window.start} to ${c.send_window.end}`],

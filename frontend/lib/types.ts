@@ -18,7 +18,7 @@ export type Campaign = {
 };
 
 export type CampaignConfig = {
-  keywords: string[]; countries: string[]; locations: string[]; work_modes: string[]; contract_types: string[];
+  keywords: string[]; countries: string[]; remote_outside_countries: boolean; locations: string[]; work_modes: string[]; contract_types: string[];
   seniority: string[]; languages: string[]; salary_min: number | null; max_posting_age_days: number | null;
   exclude_agencies: boolean; sources: string[]; unknown_policy: Record<string, string>; daily_quota: number;
   send_window: { start: string; end: string; days: number[] }; company_cooldown_days: number;
@@ -27,6 +27,8 @@ export type CampaignConfig = {
   answer_routine_questions: boolean; thank_you_on_rejection: boolean; may_state_salary: boolean;
   email_min_words: number; email_max_words: number;
 };
+
+export type Country = { code: string; name: string; sources: string[]; adzuna_possible: boolean };
 
 export type CV = {
   id: string; label: string; target_roles: string[]; keywords: string[]; language: string; is_default: boolean;

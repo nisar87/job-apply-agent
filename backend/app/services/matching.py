@@ -6,6 +6,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.countries import name_of as country_name
 from app.llm.base import LLMClient
 from app.models import CV, Application, Block, Campaign, CVVersion, GlobalBlock, Match, Posting
 from app.services import cvs as cv_service
@@ -90,8 +91,14 @@ def hard_filters(
         fails.append("posting is closed")
     country = posting.country
     mode = f.get("work_mode") or "unknown"
-    if config.countries and country and country not in config.countries and mode != "remote":
-        fails.append(f"country {country} is not in this search")
+    if config.countries:
+        if not country:
+            notes.append("country not stated")
+        elif country not in config.countries:
+            if mode != "remote":
+                fails.append(f"country {country_name(country)} is not in this search")
+            elif not config.remote_outside_countries:
+                fails.append(f"remote job based in {country_name(country)}, a country not in this search")
     if config.work_modes:
         if mode == "unknown":
             if config.unknown_policy.get("work_mode", "apply") == "skip":

@@ -7,6 +7,7 @@ import uuid
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
+from app.countries import name_of as country_name
 from app.llm.base import LLMClient
 from app.models import User
 from app.services import applications as app_service
@@ -25,7 +26,12 @@ ONBOARDING_SCHEMA = {
             "description": "Only the settings the user has stated so far",
             "properties": {
                 "keywords": {"type": "array", "items": {"type": "string"}},
-                "countries": {"type": "array", "items": {"type": "string"}, "description": "ISO alpha-2, lower case"},
+                "countries": {"type": "array", "items": {"type": "string"},
+                              "description": "Countries to apply within, ISO alpha-2, lower case"},
+                "remote_outside_countries": {
+                    "type": "boolean",
+                    "description": "false when the user wants only jobs based in the named countries, even remote "
+                                   "ones; true when remote jobs from anywhere are welcome"},
                 "locations": {"type": "array", "items": {"type": "string"}},
                 "work_modes": {"type": "array", "items": {"type": "string", "enum": ["remote", "hybrid", "onsite"]}},
                 "contract_types": {"type": "array", "items": {"type": "string",
@@ -76,7 +82,8 @@ entry quoting the user's words for it, copied exactly. A setting without a match
 company_cooldown_days; one stated for contacts or HR addresses is contact_cooldown_days.
 
 Be complete: every country, work mode, limit, time window, cooldown and exclusion the user named must appear in \
-config, each with its quote. Countries are ISO codes: Germany is de, Austria is at, Switzerland is ch.
+config, each with its quote. Countries are ISO codes: Germany is de, Austria is at, Switzerland is ch, the United Kingdom is gb. \
+"Only in Germany, even remote" means remote_outside_countries false; "remote from anywhere" means true.
 
 Reply: if an instruction is vague or contradicts another, ask exactly one short question. Otherwise confirm \
 what you understood in two or three sentences. Do not say anything about what is still missing on the account \
@@ -119,7 +126,8 @@ def stated_settings(patch: dict, evidence: list, history: list[dict]) -> tuple[d
 
 
 _LABELS = {
-    "keywords": "roles", "countries": "countries", "locations": "locations", "work_modes": "work mode",
+    "keywords": "roles", "countries": "countries", "remote_outside_countries": "remote jobs from other countries",
+    "locations": "locations", "work_modes": "work mode",
     "contract_types": "contract type", "seniority": "seniority", "languages": "posting languages",
     "salary_min": "minimum yearly salary", "max_posting_age_days": "posted within (days)",
     "exclude_agencies": "skip recruitment agencies", "daily_quota": "applications per day",
@@ -140,6 +148,8 @@ def describe_settings(config: dict) -> str:
             continue
         if isinstance(value, bool):
             text = "yes" if value else "no"
+        elif key == "countries":
+            text = ", ".join(country_name(v) for v in value)
         elif isinstance(value, list):
             text = ", ".join(str(v) for v in value)
         else:

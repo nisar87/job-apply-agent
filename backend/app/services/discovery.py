@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app import audit
 from app.connectors.fetcher import Fetcher
 from app.connectors.sources import COMPANY_FEED_SOURCES, RawPosting, SearchQuery, get_sources
+from app.countries import ADZUNA_COUNTRIES
 from app.llm.base import LLMClient
 from app.models import Campaign, Company
 from app.services import postings as posting_service
@@ -16,6 +17,15 @@ from app.services.campaigns import get_config
 
 log = logging.getLogger(__name__)
 MAX_NEW_PER_RUN = 60
+
+
+def _countries_for(source: str, countries: list[str]) -> list[str]:
+    """The countries one source is asked about. Adzuna searches one country per request, so it is asked
+    once for each chosen country it covers (and not at all for "anywhere"). Every other source searches
+    its whole board in one request; the country filter then keeps only postings in the chosen countries."""
+    if source == "adzuna":
+        return [c for c in countries if c in ADZUNA_COUNTRIES]
+    return [countries[0] if countries else ""]
 
 
 def discover(session: Session, llm: LLMClient, campaign: Campaign, *, fetcher: Fetcher | None = None,
@@ -35,7 +45,7 @@ def discover(session: Session, llm: LLMClient, campaign: Campaign, *, fetcher: F
             ).scalars()]
             if not slugs:
                 continue
-        for country in config.countries or ["at"]:
+        for country in _countries_for(name, config.countries):
             query = SearchQuery(keywords=config.keywords, country=country,
                                 location=(config.locations or [""])[0], max_days_old=config.max_posting_age_days,
                                 company_slugs=slugs)
@@ -55,8 +65,6 @@ def discover(session: Session, llm: LLMClient, campaign: Campaign, *, fetcher: F
                 except Exception as exc:  # noqa: BLE001
                     log.warning("ingest failed for %s: %s", raw.url, exc)
                     errors.append(f"ingest: {type(exc).__name__}")
-            if name in COMPANY_FEED_SOURCES or name == "arbeitnow":
-                break  # these sources are not country-specific; one pass is enough
     result = {"found": found, "new": created, "errors": errors[:10]}
     audit.record(session, user_id=campaign.user_id, actor="agent", tool="discover", run_id=run_id,
                  entity_id=campaign.id, result=result)

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app import audit
 from app.config import get_settings
+from app.countries import normalize as normalize_country
 from app.models import Campaign
 
 DEFAULT_WEIGHTS = {
@@ -48,7 +49,10 @@ class SendWindow(BaseModel):
 class CampaignConfig(BaseModel):
     # What to look for
     keywords: list[str] = Field(default_factory=list)
+    # Countries to apply within; empty means anywhere. A posting outside them is skipped, unless it is
+    # remote and remote_outside_countries allows remote jobs based elsewhere.
     countries: list[str] = Field(default_factory=lambda: ["at"])
+    remote_outside_countries: bool = True
     locations: list[str] = Field(default_factory=list)
     work_modes: list[str] = Field(default_factory=list)  # remote | hybrid | onsite; empty = any
     contract_types: list[str] = Field(default_factory=list)  # full_time | part_time | contract | internship
@@ -83,8 +87,17 @@ class CampaignConfig(BaseModel):
 
     @field_validator("countries")
     @classmethod
-    def _lower(cls, v: list[str]) -> list[str]:
-        return [c.lower() for c in v]
+    def _known_countries(cls, v: list[str]) -> list[str]:
+        out, unknown = [], []
+        for item in v:
+            code = normalize_country(item)
+            if code is None:
+                unknown.append(str(item))
+            elif code not in out:
+                out.append(code)
+        if unknown:
+            raise ValueError(f"Unknown country: {', '.join(unknown)}. Use a country name or its two-letter code.")
+        return out
 
     @model_validator(mode="after")
     def _consistent(self):

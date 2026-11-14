@@ -89,6 +89,14 @@ def cv_search_keywords(user_id: uuid.UUID = Depends(current_user_id), session: S
     return {"keywords": cv_service.search_keywords(session, user_id)}
 
 
+@router.get("/countries")
+def countries(user_id: uuid.UUID = Depends(current_user_id)):
+    """Countries a search can be limited to, with the job sources that search each one."""
+    from app.countries import catalogue
+
+    return catalogue()
+
+
 @router.get("/cv-versions/{version_id}/file")
 def cv_file(version_id: uuid.UUID, session: Session = Depends(db, scope="function")):
     from app.models import CVVersion

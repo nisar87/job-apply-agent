@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import CountryPicker from "@/components/CountryPicker";
 import Shell from "@/components/Shell";
 import { Empty, ErrorNote, errorText, useLoad } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -84,7 +85,17 @@ function Editor({ campaign, onSaved }: { campaign: Campaign; onSaved: () => void
           <input className="field" value={c.keywords.join(", ")} onChange={(e) => set("keywords", list(e.target.value))} />
           <button type="button" className="btn btn-quiet mt-2 text-xs" onClick={fillFromCv}>Use the skills on my CV</button>
         </Field>
-        <Field label="Countries" hint="Two-letter codes, for example at, de"><input className="field" value={c.countries.join(", ")} onChange={(e) => set("countries", list(e.target.value))} /></Field>
+        <div className="block text-sm">
+          <span className="font-semibold">Countries to apply within</span>
+          <span className="block text-xs text-slate">Jobs outside these countries are skipped. None chosen means anywhere</span>
+          <div className="mt-1"><CountryPicker value={c.countries} onChange={(codes) => set("countries", codes)} /></div>
+          {c.countries.length > 0 && (
+            <label className="mt-2 flex items-center gap-2">
+              <input type="checkbox" checked={c.remote_outside_countries} onChange={(e) => set("remote_outside_countries", e.target.checked)} />
+              Also remote jobs based in other countries
+            </label>
+          )}
+        </div>
         <Field label="Work mode" hint="remote, hybrid, onsite. Empty means any"><input className="field" value={c.work_modes.join(", ")} onChange={(e) => set("work_modes", list(e.target.value))} /></Field>
         <Field label="Contract type" hint="full_time, part_time, contract, internship"><input className="field" value={c.contract_types.join(", ")} onChange={(e) => set("contract_types", list(e.target.value))} /></Field>
         <Field label="Minimum salary per year" hint="Leave empty for no minimum">

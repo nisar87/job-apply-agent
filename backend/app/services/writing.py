@@ -98,7 +98,10 @@ def run_checks(
     """All checks a draft must pass. Returns {'passed': bool, 'problems': [...]}."""
     subject, body = draft.get("subject", ""), draft.get("body", "")
     problems = placeholder_problems(subject, body, company_name)
+    # A posting without a known company (the placeholder "Unknown") has no name to require.
     first_word = (normalize_company(company_name).split() or [""])[0]
+    if first_word == "unknown":
+        first_word = ""
     if len(first_word) >= 3 and first_word not in normalize_company(f"{subject} {body}"):
         problems.append("the email does not name the company from the posting")
     detected = detect_language(body)

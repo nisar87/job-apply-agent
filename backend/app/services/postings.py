@@ -30,6 +30,8 @@ EXTRACT_SCHEMA = {
                                    "description": "Subset of must-haves the posting calls essential or mandatory"},
         "requirements_nice": {"type": "array", "items": {"type": "string"}},
         "application_method": {"type": "string", "enum": ["unknown", "email", "form"]},
+        "company": {"type": "string", "description": "The hiring company's name exactly as the posting writes it, "
+                                                     "or empty"},
         "contact_name": {"type": "string"},
         "contact_email": {"type": "string"},
         "reference_number": {"type": "string"},
@@ -133,6 +135,18 @@ def extract_fields(llm: LLMClient, title: str, company: str, text: str) -> dict:
     return llm.generate_structured(prompt, EXTRACT_SCHEMA, task="posting_extract").data or {}
 
 
+UNKNOWN_COMPANY = "Unknown"
+
+
+def _company_in_text(name, text: str) -> str | None:
+    """The company name the model read from the posting, kept only if the posting really contains it
+    (a page added by link has no company field of its own)."""
+    name = " ".join(str(name or "").split())
+    if len(name) < 2 or name.lower() == UNKNOWN_COMPANY.lower():
+        return None
+    return name if _norm(name) and _norm(name) in _norm(text) else None
+
+
 def ingest(
     session: Session, llm: LLMClient, raw: RawPosting, *, fetcher: Fetcher | None = None, mail_check=None,
 ) -> tuple[Posting, bool]:
@@ -171,7 +185,8 @@ def ingest(
     fields["contact_email"] = contact or ""
     route = "email" if contact else ("form" if fields.get("application_method") == "form" or raw.url else "unknown")
     company = get_or_create_company(
-        session, raw.company or "Unknown", domain=registered_domain(domain_of(contact)) if contact else None,
+        session, raw.company or _company_in_text(fields.get("company"), text) or UNKNOWN_COMPANY,
+        domain=registered_domain(domain_of(contact)) if contact else None,
         is_agency=bool(fields.get("is_agency")),
     )
     posting = Posting(

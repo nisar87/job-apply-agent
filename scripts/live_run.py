@@ -19,10 +19,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from fastapi.testclient import TestClient  # noqa: E402
-from try_gemini import SAMPLE_CV  # noqa: E402
-
-from app.config import get_settings  # noqa: E402
+from app.config import get_settings
+from fastapi.testclient import TestClient
+from try_gemini import SAMPLE_CV
 
 FAILS: list[str] = []
 
@@ -170,7 +169,7 @@ def main() -> int:
             by.setdefault(m["decision"], []).append(m)
         print(f"       matches: { {k: len(v) for k, v in by.items()} }")
         for m in matches[:25]:
-            print(f"         - {m['decision']:6} {str(m.get('total_score')):5} {m['title'][:45]:45} | {m['company'][:22]:22} | {str(m.get('reason'))[:90]}")
+            print(f"         - {m['decision']:6} {m.get('total_score')!s:5} {m['title'][:45]:45} | {m['company'][:22]:22} | {str(m.get('reason'))[:90]}")
         apps = call("get", "/api/applications")
         print(f"       applications: { {st: sum(1 for a in apps if a['status'] == st) for st in {a['status'] for a in apps}} }")
         return apps
@@ -191,7 +190,7 @@ def main() -> int:
         assert done or not drafts, "no draft could be approved"
         return done
 
-    approved = step("approve up to three drafts")(approve) or []
+    step("approve up to three drafts")(approve)
 
     def send():
         import uuid as _uuid

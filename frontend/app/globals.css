@@ -1,0 +1,84 @@
+@import "tailwindcss";
+
+/* Palette: ink on cool paper, with postmark colours for status. */
+:root {
+  --ink: #1b2a41;
+  --slate: #5b6676;
+  --paper: #f7f8fa;
+  --sheet: #ffffff;
+  --rule: #dfe3ea;
+  --sent: #1f7a5c;
+  --waiting: #b7791f;
+  --problem: #b4342c;
+  --quiet: #8a93a3;
+}
+
+@theme inline {
+  --color-ink: var(--ink);
+  --color-slate: var(--slate);
+  --color-paper: var(--paper);
+  --color-sheet: var(--sheet);
+  --color-rule: var(--rule);
+  --color-sent: var(--sent);
+  --color-waiting: var(--waiting);
+  --color-problem: var(--problem);
+  --color-quiet: var(--quiet);
+  --font-sans: "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-letter: Charter, "Bitstream Charter", "Sitka Text", Cambria, Georgia, serif;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans);
+}
+
+h1, h2, .letter {
+  font-family: var(--font-letter);
+}
+
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* Status shown the way a post office marks mail: a ringed stamp. */
+.postmark {
+  display: inline-block;
+  padding: 1px 9px;
+  border: 1.5px dashed currentColor;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.field {
+  width: 100%;
+  border: 1px solid var(--rule);
+  background: var(--sheet);
+  border-radius: 4px;
+  padding: 8px 10px;
+  font-size: 14px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 4px;
+  padding: 8px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  background: var(--ink);
+  color: #fff;
+  cursor: pointer;
+}
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-quiet { background: transparent; color: var(--ink); border: 1px solid var(--rule); }
+.btn-danger { background: var(--problem); }
+
+table.ledger { width: 100%; border-collapse: collapse; font-size: 14px; }
+table.ledger th { text-align: left; font-weight: 600; color: var(--slate); padding: 8px 10px; border-bottom: 1px solid var(--ink); }
+table.ledger td { padding: 9px 10px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+table.ledger tr:hover td { background: #eef1f6; }

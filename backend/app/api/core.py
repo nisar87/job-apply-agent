@@ -89,6 +89,20 @@ def cv_search_keywords(user_id: uuid.UUID = Depends(current_user_id), session: S
     return {"keywords": cv_service.search_keywords(session, user_id)}
 
 
+@router.get("/job-sites")
+def job_sites(user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
+    """Every place the agent looks for jobs, with how the last checks went. Shared directory, no user data."""
+    from sqlalchemy import select as sa_select
+
+    from app.models import JobSite
+
+    rows = session.execute(sa_select(JobSite).order_by(JobSite.kind.desc(), JobSite.provider, JobSite.slug)).scalars()
+    return [{"provider": r.provider, "slug": r.slug, "kind": r.kind, "name": r.name or r.provider, "url": r.url,
+             "enabled": r.enabled, "last_checked_at": r.last_checked_at, "last_ok_at": r.last_ok_at,
+             "last_matches": r.last_matches, "failures": r.failures, "last_error": r.last_error,
+             "learned_from": r.learned_from} for r in rows]
+
+
 @router.get("/countries")
 def countries(user_id: uuid.UUID = Depends(current_user_id)):
     """Countries a search can be limited to, with the job sources that search each one."""

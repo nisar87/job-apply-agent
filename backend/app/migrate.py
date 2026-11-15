@@ -1,8 +1,8 @@
 """Bring the database to the newest schema: `python -m app.migrate` (run as the owner role).
 
 A database created earlier with `python -m app.schema` has the tables but no migration history. It is
-first completed (missing tables and policies are added, nothing is dropped) and marked as the baseline,
-then every later migration runs. A new, empty database simply runs every migration.
+completed from the current models (missing tables and policies are added, nothing is dropped) and marked as
+the newest version. A new, empty database simply runs every migration.
 """
 
 from pathlib import Path
@@ -12,8 +12,6 @@ from alembic.config import Config
 from sqlalchemy import create_engine, inspect
 
 from app.config import get_settings
-
-BASELINE = "0001"
 
 
 def _config(url: str) -> Config:
@@ -33,9 +31,10 @@ def migrate(owner_url: str | None = None) -> str:
     if "users" in tables and "alembic_version" not in tables:
         from app.schema import create_schema
 
+        # Completing it with the current models brings it to the newest schema, so it is marked as the head.
         create_schema(url)
-        command.stamp(cfg, BASELINE)
-        outcome = "existing database marked as baseline"
+        command.stamp(cfg, "head")
+        outcome = "existing database marked as current"
     else:
         outcome = "migrated"
     command.upgrade(cfg, "head")

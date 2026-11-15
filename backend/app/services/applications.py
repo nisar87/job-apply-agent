@@ -20,6 +20,7 @@ from app.services.writing import run_checks, write_checked
 from app.tasks.locks import get_redis, idempotency_key
 
 STALE_SENDING_MINUTES = 10
+APPROVED_VALID_DAYS = 7
 
 
 class ApplicationError(ValueError):
@@ -115,6 +116,10 @@ def approve(session: Session, app: Application, *, subject: str | None = None, b
     app.status = "queued"
     app.approved_at = datetime.now(UTC)
     app.skip_reason = ""
+    # Approval keeps the draft valid long enough to reach a send window: one approved on Friday evening must
+    # still go out on Monday, not expire over the weekend.
+    if app.expires_at is not None:
+        app.expires_at = max(app.expires_at, app.approved_at + timedelta(days=APPROVED_VALID_DAYS))
     session.flush()
     audit.record(session, user_id=app.user_id, actor="user", tool="approve_draft", entity_id=app.id)
     return app

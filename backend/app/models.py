@@ -366,6 +366,29 @@ class BlockRequest(Base, TimestampMixin):
     state: Mapped[str] = mapped_column(String(16), default="open")  # open | approved | declined
 
 
+class JobSite(Base, TimestampMixin):
+    """A place where jobs are looked for: a whole job board (provider only) or one company's own careers board on
+    a hiring system (provider + slug). Learned automatically from postings, checked on a schedule, and paused
+    when it keeps failing. Shared by all users; holds no user content."""
+
+    __tablename__ = "job_sites"
+    id: Mapped[uuid.UUID] = pk()
+    provider: Mapped[str] = mapped_column(String(32), index=True)     # greenhouse, lever, ashby, remotive, …
+    slug: Mapped[str] = mapped_column(String(200), default="")        # the company's id on that system; "" for a board
+    name: Mapped[str] = mapped_column(String(300), default="")
+    url: Mapped[str] = mapped_column(Text, default="")
+    kind: Mapped[str] = mapped_column(String(16), default="company")  # company | board
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    learned_from: Mapped[str] = mapped_column(Text, default="")       # the posting link that revealed it
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    last_ok_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_jobs: Mapped[int] = mapped_column(Integer, default=0)        # jobs on the board at the last check
+    last_matches: Mapped[int] = mapped_column(Integer, default=0)     # of those, matching someone's search
+    failures: Mapped[int] = mapped_column(Integer, default=0)         # consecutive failed checks
+    last_error: Mapped[str] = mapped_column(Text, default="")
+    __table_args__ = (UniqueConstraint("provider", "slug"),)
+
+
 class KVEntry(Base):
     """Short-lived keys (locks, rate limits, page cache, the global pause) when no Redis server is used.
     Holds no user content beyond what the same keys hold in Redis. See app/kv.py."""
@@ -383,4 +406,4 @@ USER_TABLES = [
     "usage_daily",
 ]
 # Shared tables: readable by the app role, no per-user rows.
-SHARED_TABLES = ["companies", "postings", "global_blocks", "posting_slots", "block_requests", "kv_store"]
+SHARED_TABLES = ["companies", "postings", "global_blocks", "posting_slots", "block_requests", "kv_store", "job_sites"]

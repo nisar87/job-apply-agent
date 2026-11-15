@@ -11,7 +11,7 @@ from app import audit
 from app.config import get_settings
 from app.connectors.mail import MailAuthError, MailMessage, OutgoingMail, get_mail_provider
 from app.db import system_session, user_session
-from app.llm.base import LLMClient
+from app.llm.base import LLMClient, SpendCapExceeded
 from app.models import (
     Application,
     Block,
@@ -66,6 +66,12 @@ NEVER_AUTO = {"interview_invitation", "offer", "test_assignment", "do_not_contac
 URGENT = {"interview_invitation", "offer"}
 ACTIVE_STATES = ("sent", "acknowledged", "in_conversation", "interview", "offer")
 REPLY_HOURS = (7, 19)
+# Shared mailbox providers: a block can only ever cover one address there, never the whole domain.
+FREE_MAIL_DOMAINS = {
+    "gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com", "msn.com", "yahoo.com", "ymail.com",
+    "icloud.com", "me.com", "mac.com", "aol.com", "gmx.com", "gmx.de", "gmx.at", "gmx.net", "web.de", "proton.me",
+    "protonmail.com", "zoho.com", "yandex.com", "yandex.ru", "mail.com", "mail.ru", "qq.com", "163.com",
+}
 
 
 def within_reply_hours(local: datetime) -> bool:
@@ -208,6 +214,9 @@ def send_reply(
     session.flush()
     audit.record(session, user_id=user.id, actor=actor, tool="send_reply", entity_id=app.id,
                  input={"purpose": purpose, "body": body[:1500]}, result={"message_id": sent.message_id})
+    # Gmail has the email now: make the record permanent at once, so nothing that fails later in this inbox
+    # pass can roll it back and cause the same email to be sent to the employer again.
+    session.commit()
     return msg
 
 
@@ -239,6 +248,9 @@ def _do_not_contact(session: Session, app: Application) -> None:
     """Permanent, global, and not removable by the agent or the user (section 10)."""
     address = (app.recipient or "").lower()
     domain = registered_domain(domain_of(address)) if address else ""
+    if domain in FREE_MAIL_DOMAINS:
+        domain = ""     # a recruiter writing from gmail.com must never block every gmail.com address
+
     for kind, value in (("address", address), ("domain", domain)):
         if not value:
             continue
@@ -249,6 +261,26 @@ def _do_not_contact(session: Session, app: Application) -> None:
         for kind, value in (("address", address), ("domain", domain)):
             if value and not sys.execute(select(GlobalBlock).where(GlobalBlock.type == kind, GlobalBlock.value == value)).first():
                 sys.add(GlobalBlock(type=kind, value=value, reason="asked not to be contacted"))
+
+
+FAILED = -1   # _handle_one's result for an email that must be read again on the next pass
+
+
+def _handle_one(session: Session, llm: LLMClient, app: Application, message: MailMessage, now: datetime) -> int:
+    """Handle one incoming email in its own transaction. A failure (model or Gmail error) undoes only this
+    email's work, which is retried on the next pass; it never undoes replies already sent for other emails.
+    The spend cap still stops the whole pass."""
+    try:
+        done = handle_message(session, llm, app, message, now) is not None
+        session.commit()
+        return int(done)
+    except SpendCapExceeded:
+        session.rollback()
+        raise
+    except Exception:  # noqa: BLE001
+        log.exception("could not handle message %s; it is retried on the next pass", message.message_id)
+        session.rollback()
+        return FAILED
 
 
 def handle_message(session: Session, llm: LLMClient, app: Application, incoming: MailMessage, now: datetime | None = None) -> Message | None:
@@ -434,6 +466,7 @@ def sync_inbox(session: Session, llm: LLMClient, user_id: uuid.UUID, now: dateti
         notify(session, user_id, "reconnect_mail", "Reconnect your Gmail account", "Gmail no longer accepts the saved authorization.", "/account")
         return {"handled": 0, "ignored": 0, "error": "mail_auth"}
     handled = ignored = 0
+    failed = False
     tracked_threads = set(session.execute(
         select(Application.thread_id).where(Application.user_id == user_id, Application.thread_id.is_not(None))
     ).scalars())
@@ -448,8 +481,9 @@ def sync_inbox(session: Session, llm: LLMClient, user_id: uuid.UUID, now: dateti
         if app is None:
             ignored += 1                                # unrelated mail is never stored
             continue
-        if handle_message(session, llm, app, message, now) is not None:
-            handled += 1
+        result = _handle_one(session, llm, app, message, now)
+        failed = failed or result == FAILED
+        handled += max(result, 0)
     # Replies sent as a new thread: look for mail from addresses we applied to.
     since = now - timedelta(days=90)
     recipients = sorted({a for a in session.execute(
@@ -457,8 +491,8 @@ def sync_inbox(session: Session, llm: LLMClient, user_id: uuid.UUID, now: dateti
     if recipients:
         for message in provider.search_from(account, recipients, account.updated_at - timedelta(days=1) if account.updated_at else since):
             app = tracked_application(session, user_id, message, now)
-            if app and handle_message(session, llm, app, message, now) is not None:
-                handled += 1
+            if app:
+                handled += max(_handle_one(session, llm, app, message, now), 0)
     # Messages deferred because it was outside working hours.
     deferred = session.execute(
         select(Message).where(Message.user_id == user_id, Message.direction == "in", Message.handled_by.is_(None))
@@ -466,10 +500,12 @@ def sync_inbox(session: Session, llm: LLMClient, user_id: uuid.UUID, now: dateti
     for msg in deferred:
         app = session.get(Application, msg.application_id)
         _retry_deferred(session, llm, app, msg, now)
-    if history_id:
+    # After a failure the read position stays where it was, so the next pass lists the same mail again: the
+    # failed email gets another try and the ones already handled are skipped (they are stored by Gmail id).
+    if history_id and not failed:
         account.last_history_id = history_id
     session.flush()
-    return {"handled": handled, "ignored": ignored}
+    return {"handled": handled, "ignored": ignored, **({"retry_next_pass": True} if failed else {})}
 
 
 def _retry_deferred(session: Session, llm: LLMClient, app: Application, msg: Message, now: datetime) -> None:

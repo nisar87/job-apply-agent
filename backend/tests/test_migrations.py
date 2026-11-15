@@ -13,6 +13,7 @@ from app.migrate import migrate
 from app.models import Base
 from app.schema import create_schema
 
+HEAD = "0002"
 URL = os.environ.get("TEST_MIGRATE_DATABASE_URL",
                      "postgresql+psycopg://jobagent_owner:owner@localhost:5432/jobagent_migrate")
 
@@ -41,13 +42,13 @@ def test_a_new_database_is_built_by_the_migrations():
     assert migrate(URL) == "migrated"
     diff, version, rls, policies = _state()
     assert diff == [], diff            # the migrations and the models agree
-    assert version == "0001" and rls is True and policies == 16
+    assert version == HEAD and rls is True and policies == 16
 
 
 def test_a_database_made_by_the_old_schema_command_is_adopted():
     _empty_database()
     create_schema(URL)
-    assert migrate(URL) == "existing database marked as baseline"
+    assert migrate(URL) == "existing database marked as current"
     diff, version, rls, _ = _state()
-    assert diff == [] and version == "0001" and rls is True
+    assert diff == [] and version == HEAD and rls is True
     assert migrate(URL) == "migrated"   # running it again changes nothing

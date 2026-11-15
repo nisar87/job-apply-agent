@@ -59,9 +59,14 @@ def run_llm_agent(ctx: AgentContext, max_steps: int | None = None) -> dict:
         if not result.tool_calls:
             break
         messages.append({"role": "model", "raw": result.raw, "text": result.text, "tool_calls": result.tool_calls})
+        capped = False
         for call in result.tool_calls:
             steps += 1
-            output = tools.call_tool(ctx, call.name, call.args)
+            try:
+                output = tools.call_tool(ctx, call.name, call.args)
+            except SpendCapExceeded:
+                capped = True      # the work done so far is kept; the run stops here
+                break
             if call.name == "score_job" and "decision" in output:
                 scored += 1
             if call.name == "draft_application" and output.get("status") in ("awaiting_approval", "queued", "manual_apply"):
@@ -69,6 +74,9 @@ def run_llm_agent(ctx: AgentContext, max_steps: int | None = None) -> dict:
             messages.append({"role": "tool", "name": call.name, "result": output})
             if ctx.finished or steps >= max_steps:
                 break
+        if capped:
+            stop_reason = "spend cap"
+            break
         if ctx.finished:
             stop_reason = "finished"
             break

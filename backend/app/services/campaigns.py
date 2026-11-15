@@ -61,8 +61,10 @@ class CampaignConfig(BaseModel):
     salary_min: float | None = None  # per year, in the posting's currency
     max_posting_age_days: int | None = Field(default=7, ge=1, le=60)
     exclude_agencies: bool = False
-    sources: list[str] = Field(default_factory=lambda: ["adzuna", "arbeitnow", "greenhouse", "lever", "personio",
-                                                        "remotive", "jobicy", "himalayas"])
+    sources: list[str] = Field(default_factory=lambda: [
+        "adzuna", "arbeitnow", "remotive", "jobicy", "himalayas", "weworkremotely", "remoteok", "workingnomads",
+        "greenhouse", "lever", "ashby", "workable", "smartrecruiters", "recruitee", "personio", "teamtailor",
+    ])
     # What to do when a posting does not state something: apply | skip
     unknown_policy: dict[str, str] = Field(
         default_factory=lambda: {"salary": "apply", "work_mode": "apply", "age": "apply"}

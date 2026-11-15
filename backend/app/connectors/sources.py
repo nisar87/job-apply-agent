@@ -147,8 +147,9 @@ class GreenhouseSource:
         out = []
         for slug in query.company_slugs:
             resp = self.http.get(f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs", params={"content": "true"})
-            if resp.status_code != 200:
-                continue
+            if resp.status_code == 404:
+                raise BoardMissing(slug)
+            resp.raise_for_status()
             for r in resp.json().get("jobs", []):
                 text = html_to_text(html_to_text(r.get("content", "")))  # content is HTML-escaped HTML
                 if not matches_keywords(f"{r.get('title', '')} {text}", query.keywords):
@@ -172,8 +173,9 @@ class LeverSource:
         out = []
         for slug in query.company_slugs:
             resp = self.http.get(f"https://api.lever.co/v0/postings/{slug}", params={"mode": "json"})
-            if resp.status_code != 200:
-                continue
+            if resp.status_code == 404:
+                raise BoardMissing(slug)
+            resp.raise_for_status()
             for r in resp.json():
                 text = r.get("descriptionPlain", "") + "\n" + "\n".join(
                     html_to_text(item.get("content", "")) for item in r.get("lists", [])
@@ -201,8 +203,9 @@ class PersonioSource:
         out = []
         for slug in query.company_slugs:
             resp = self.http.get(f"https://{slug}.jobs.personio.de/xml", params={"language": "en"})
-            if resp.status_code != 200:
-                continue
+            if resp.status_code == 404:
+                raise BoardMissing(slug)
+            resp.raise_for_status()
             try:
                 root = ET.fromstring(resp.text)
             except ET.ParseError:
@@ -366,8 +369,291 @@ class HimalayasSource:
         return out
 
 
-REMOTE_SOURCES = {"remotive", "jobicy", "himalayas"}
-COMPANY_FEED_SOURCES = {"greenhouse", "lever", "personio"}
+class BoardMissing(Exception):
+    """A company's board no longer exists on that hiring system (404 or an empty company)."""
+
+
+def _mode(remote, hybrid=False) -> str | None:
+    return "remote" if remote else ("hybrid" if hybrid else None)
+
+
+def _rss_items(text: str) -> list[dict]:
+    """Items of an RSS feed as {tag: text}, namespaces dropped (so 'tt:locations' becomes 'locations')."""
+    root = ET.fromstring(text)
+    out = []
+    for item in root.iter("item"):
+        row = {}
+        for child in item:
+            tag = child.tag.split("}", 1)[-1]
+            row[tag] = (child.text or "").strip()
+        out.append(row)
+    return out
+
+
+class WeWorkRemotelySource:
+    """We Work Remotely RSS feeds (back-end and full-stack programming). Each item links back to its post."""
+
+    name = "weworkremotely"
+    FEEDS = ("https://weworkremotely.com/categories/remote-back-end-programming-jobs.rss",
+             "https://weworkremotely.com/categories/remote-full-stack-programming-jobs.rss")
+
+    def __init__(self, http: httpx.Client | None = None):
+        self.http = http or httpx.Client(timeout=30, headers={"User-Agent": "JobApplyAgent/0.1"})
+
+    def search(self, query: SearchQuery) -> list[RawPosting]:
+        from app.tasks.locks import get_redis
+
+        out, seen = [], set()
+        for feed in self.FEEDS:
+            key = "src:" + feed
+            try:
+                text = get_redis().get(key)
+            except Exception:  # noqa: BLE001
+                text = None
+            if not text:
+                resp = self.http.get(feed)
+                resp.raise_for_status()
+                text = resp.text
+                try:
+                    get_redis().set(key, text, ex=6 * 3600)
+                except Exception:  # noqa: BLE001
+                    pass
+            for r in _rss_items(text):
+                company, _, role = r.get("title", "").partition(": ")
+                role = role or company
+                body = html_to_text(r.get("description", ""))
+                guid = r.get("guid") or r.get("link", "")
+                if guid in seen or not matches_keywords(f"{role} {r.get('skills', '')} {body}", query.keywords):
+                    continue
+                seen.add(guid)
+                out.append(RawPosting(
+                    source=self.name, source_id=guid, url=r.get("link", ""), title=role, company=company if role != company else "",
+                    description=body, location=r.get("region", ""), posted_date=_rss_date(r.get("pubDate")),
+                    work_mode="remote", contract_type=r.get("type") or None,
+                    hiring_regions=split_hiring_labels(r.get("region") or r.get("country")),
+                ))
+        return out
+
+
+def _rss_date(value: str | None) -> date | None:
+    from email.utils import parsedate_to_datetime
+
+    try:
+        return parsedate_to_datetime(value).date() if value else None
+    except (TypeError, ValueError):
+        return _date(value)
+
+
+class RemoteOkSource:
+    """Remote OK's public API. Terms: link back to the job on Remote OK and name it as the source. The first
+    array item is their legal notice; jobs follow. Fetched at most every six hours."""
+
+    name = "remoteok"
+
+    def __init__(self, http: httpx.Client | None = None):
+        self.http = http or httpx.Client(timeout=30, headers={"User-Agent": "Mozilla/5.0 (compatible; JobApplyAgent/0.1)"})
+
+    def search(self, query: SearchQuery) -> list[RawPosting]:
+        data = _cached_json(self.http, "https://remoteok.com/api", 6 * 3600)
+        out = []
+        for r in data if isinstance(data, list) else []:
+            if not isinstance(r, dict) or not r.get("id") or not r.get("position"):
+                continue
+            text = html_to_text(r.get("description", ""))
+            if not matches_keywords(f"{r.get('position', '')} {' '.join(r.get('tags') or [])} {text}", query.keywords):
+                continue
+            out.append(RawPosting(
+                source=self.name, source_id=str(r.get("id")), url=r.get("url") or r.get("apply_url", ""),
+                title=r.get("position", ""), company=r.get("company", ""), description=text,
+                location=r.get("location", ""), posted_date=_date(r.get("date") or r.get("epoch")), work_mode="remote",
+                salary_min=r.get("salary_min") or None, salary_max=r.get("salary_max") or None,
+                hiring_regions=split_hiring_labels(r.get("location")) or ["Worldwide"],
+            ))
+        return out
+
+
+class WorkingNomadsSource:
+    """Working Nomads' exposed jobs feed (small, all remote)."""
+
+    name = "workingnomads"
+
+    def __init__(self, http: httpx.Client | None = None):
+        self.http = http or httpx.Client(timeout=30, headers={"User-Agent": "JobApplyAgent/0.1"})
+
+    def search(self, query: SearchQuery) -> list[RawPosting]:
+        data = _cached_json(self.http, "https://www.workingnomads.com/api/exposed_jobs/", 6 * 3600)
+        out = []
+        for r in data if isinstance(data, list) else []:
+            text = html_to_text(r.get("description", ""))
+            if not matches_keywords(f"{r.get('title', '')} {r.get('tags', '')} {text}", query.keywords):
+                continue
+            out.append(RawPosting(
+                source=self.name, source_id=r.get("url", ""), url=r.get("url", ""), title=r.get("title", ""),
+                company=r.get("company_name", ""), description=text, location=r.get("location", ""),
+                posted_date=_date(r.get("pub_date")), work_mode="remote",
+                hiring_regions=split_hiring_labels(r.get("location")),
+            ))
+        return out
+
+
+class AshbySource:
+    """One company's Ashby job board (public posting API)."""
+
+    name = "ashby"
+
+    def __init__(self, http: httpx.Client | None = None):
+        self.http = http or httpx.Client(timeout=30)
+
+    def search(self, query: SearchQuery) -> list[RawPosting]:
+        out = []
+        for slug in query.company_slugs:
+            resp = self.http.get(f"https://api.ashbyhq.com/posting-api/job-board/{slug}", params={"includeCompensation": "true"})
+            if resp.status_code == 404:
+                raise BoardMissing(slug)
+            resp.raise_for_status()
+            for r in resp.json().get("jobs", []):
+                if r.get("isListed") is False:
+                    continue
+                text = r.get("descriptionPlain") or html_to_text(r.get("descriptionHtml", ""))
+                if not matches_keywords(f"{r.get('title', '')} {text}", query.keywords):
+                    continue
+                remote = bool(r.get("isRemote")) or (r.get("workplaceType") or "").lower() == "remote"
+                out.append(RawPosting(
+                    source=self.name, source_id=f"{slug}:{r.get('id')}", url=r.get("jobUrl") or r.get("applyUrl", ""),
+                    title=r.get("title", ""), company=slug, description=text, location=r.get("location", ""),
+                    posted_date=_date(r.get("publishedAt")), contract_type=r.get("employmentType"),
+                    work_mode=_mode(remote, (r.get("workplaceType") or "").lower() == "hybrid"),
+                ))
+        return out
+
+
+class WorkableSource:
+    """One company's Workable board (the public widget endpoint Workable's own embed uses). The listing has no
+    description, so it carries the title and location; the posting page is read when the agent looks closer."""
+
+    name = "workable"
+
+    def __init__(self, http: httpx.Client | None = None):
+        self.http = http or httpx.Client(timeout=30)
+
+    def search(self, query: SearchQuery) -> list[RawPosting]:
+        out = []
+        for slug in query.company_slugs:
+            resp = self.http.get(f"https://apply.workable.com/api/v1/widget/accounts/{slug}")
+            if resp.status_code == 404:
+                raise BoardMissing(slug)
+            resp.raise_for_status()
+            data = resp.json()
+            for r in data.get("jobs", []):
+                where = ", ".join(x for x in (r.get("city"), r.get("country")) if x)
+                if not matches_keywords(f"{r.get('title', '')} {r.get('department', '')}", query.keywords):
+                    continue
+                out.append(RawPosting(
+                    source=self.name, source_id=f"{slug}:{r.get('shortcode')}", url=r.get("url") or r.get("application_url", ""),
+                    title=r.get("title", ""), company=data.get("name") or slug, description=f"{r.get('title', '')}\n{where}",
+                    location=where, posted_date=_date(r.get("published_on") or r.get("created_at")),
+                    contract_type=r.get("employment_type"), work_mode=_mode(r.get("telecommuting")), is_snippet=True,
+                ))
+        return out
+
+
+class SmartRecruitersSource:
+    """One company's SmartRecruiters postings. Unknown companies answer with zero results, not 404."""
+
+    name = "smartrecruiters"
+
+    def __init__(self, http: httpx.Client | None = None):
+        self.http = http or httpx.Client(timeout=30)
+
+    def search(self, query: SearchQuery) -> list[RawPosting]:
+        out = []
+        for slug in query.company_slugs:
+            resp = self.http.get(f"https://api.smartrecruiters.com/v1/companies/{slug}/postings", params={"limit": 100})
+            if resp.status_code == 404:
+                raise BoardMissing(slug)
+            resp.raise_for_status()
+            data = resp.json()
+            if not data.get("totalFound") and not data.get("content"):
+                raise BoardMissing(slug)
+            for r in data.get("content", []):
+                loc = r.get("location") or {}
+                text = " ".join(str(x) for x in (r.get("name"), (r.get("function") or {}).get("label"),
+                                                  (r.get("experienceLevel") or {}).get("label")) if x)
+                if not matches_keywords(text, query.keywords):
+                    continue
+                out.append(RawPosting(
+                    source=self.name, source_id=f"{slug}:{r.get('id')}",
+                    url=f"https://jobs.smartrecruiters.com/{slug}/{r.get('id')}", title=r.get("name", ""),
+                    company=(r.get("company") or {}).get("name") or slug, description=text,
+                    location=loc.get("fullLocation") or ", ".join(x for x in (loc.get("city"), loc.get("country")) if x),
+                    country=(loc.get("country") or "").lower() or None, posted_date=_date(r.get("releasedDate")),
+                    contract_type=(r.get("typeOfEmployment") or {}).get("label"),
+                    work_mode=_mode(loc.get("remote"), loc.get("hybrid")), is_snippet=True,
+                ))
+        return out
+
+
+class RecruiteeSource:
+    """One company's Recruitee offers (public careers API; the token-protected API is a different one)."""
+
+    name = "recruitee"
+
+    def __init__(self, http: httpx.Client | None = None):
+        self.http = http or httpx.Client(timeout=30)
+
+    def search(self, query: SearchQuery) -> list[RawPosting]:
+        out = []
+        for slug in query.company_slugs:
+            resp = self.http.get(f"https://{slug}.recruitee.com/api/offers/")
+            if resp.status_code == 404:
+                raise BoardMissing(slug)
+            resp.raise_for_status()
+            for r in resp.json().get("offers", []):
+                text = html_to_text(f"{r.get('description', '')}\n{r.get('requirements', '')}")
+                if not matches_keywords(f"{r.get('title', '')} {text}", query.keywords):
+                    continue
+                out.append(RawPosting(
+                    source=self.name, source_id=f"{slug}:{r.get('id') or r.get('slug')}",
+                    url=r.get("careers_url") or r.get("careers_apply_url", ""), title=r.get("title", ""),
+                    company=r.get("company_name") or slug, description=text, location=r.get("location", ""),
+                    country=(r.get("country_code") or "").lower() or None, posted_date=_date(r.get("published_at")),
+                    work_mode=_mode(r.get("remote"), r.get("hybrid")),
+                ))
+        return out
+
+
+class TeamtailorSource:
+    """One company's Teamtailor jobs feed (public RSS)."""
+
+    name = "teamtailor"
+
+    def __init__(self, http: httpx.Client | None = None):
+        self.http = http or httpx.Client(timeout=30)
+
+    def search(self, query: SearchQuery) -> list[RawPosting]:
+        out = []
+        for slug in query.company_slugs:
+            resp = self.http.get(f"https://{slug}.teamtailor.com/jobs.rss")
+            if resp.status_code == 404:
+                raise BoardMissing(slug)
+            resp.raise_for_status()
+            for r in _rss_items(resp.text):
+                text = html_to_text(r.get("description", ""))
+                if not matches_keywords(f"{r.get('title', '')} {text}", query.keywords):
+                    continue
+                status = (r.get("remoteStatus") or "").lower()
+                out.append(RawPosting(
+                    source=self.name, source_id=f"{slug}:{r.get('guid') or r.get('link')}", url=r.get("link", ""),
+                    title=r.get("title", ""), company=slug, description=text, location=r.get("locations", ""),
+                    posted_date=_rss_date(r.get("pubDate")),
+                    work_mode="remote" if status in ("fully", "remote") else ("hybrid" if status == "hybrid" else None),
+                ))
+        return out
+
+
+REMOTE_SOURCES = {"remotive", "jobicy", "himalayas", "weworkremotely", "remoteok", "workingnomads"}
+COMPANY_FEED_SOURCES = {"greenhouse", "lever", "personio", "ashby", "workable", "smartrecruiters", "recruitee",
+                        "teamtailor"}
 _registry: dict[str, JobSource] | None = None
 
 
@@ -381,7 +667,9 @@ def get_sources() -> dict[str, JobSource]:
     if _registry is None:
         _registry = {
             s.name: s for s in (AdzunaSource(), ArbeitnowSource(), GreenhouseSource(), LeverSource(), PersonioSource(),
-                                RemotiveSource(), JobicySource(), HimalayasSource())
+                                RemotiveSource(), JobicySource(), HimalayasSource(), WeWorkRemotelySource(),
+                                RemoteOkSource(), WorkingNomadsSource(), AshbySource(), WorkableSource(),
+                                SmartRecruitersSource(), RecruiteeSource(), TeamtailorSource())
         }
         if get_settings().llm_provider == "fake":
             _registry = {"demo": FakeSource(demo_postings())}

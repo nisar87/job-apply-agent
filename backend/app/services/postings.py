@@ -199,6 +199,10 @@ def ingest(
     )
     session.add(posting)
     session.flush()
+    # Learn the employer's own careers board, if the posting links to one: it then becomes a place to look.
+    from app.services import sites
+
+    sites.learn(session, raw.url, text)
     return posting, True
 
 

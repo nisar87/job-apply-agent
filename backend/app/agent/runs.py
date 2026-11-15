@@ -24,10 +24,26 @@ def discovery_run(session: Session, llm: LLMClient, campaign: Campaign, **kw) ->
     try:
         result = discovery.discover(session, metered, campaign, run_id=run.id, **kw)
     except Exception as exc:  # noqa: BLE001
-        finish_run(session, run, "failed", f"{type(exc).__name__}: {exc}"[:500], metered.run_cost)
+        _record_failure(session, run, exc, metered.run_cost)
         raise
     finish_run(session, run, "done", f"found {result['found']}, new {result['new']}", metered.run_cost)
     return result
+
+
+def _record_failure(session: Session, run, exc: Exception, cost: float) -> None:
+    """Keep a failed run on record (and the work done before the failure, when the session is still usable).
+    The scheduler looks at the latest run, so a recorded failure waits for the normal interval instead of
+    being retried, and paid for again, on every five-minute tick."""
+    summary = f"{type(exc).__name__}: {exc}"[:500]
+    user_id, run_type, campaign_id = run.user_id, run.type, run.campaign_id
+    try:
+        finish_run(session, run, "failed", summary, cost)
+        session.commit()
+    except Exception:  # noqa: BLE001 - the session itself is broken: start clean and record only the failure
+        session.rollback()
+        failed = start_run(session, user_id, run_type, campaign_id)
+        finish_run(session, failed, "failed", summary, cost)
+        session.commit()
 
 
 def prepare_run(session: Session, llm: LLMClient, campaign: Campaign, now: datetime | None = None) -> dict:
@@ -39,7 +55,7 @@ def prepare_run(session: Session, llm: LLMClient, campaign: Campaign, now: datet
     try:
         outcome = prepare(ctx)
     except Exception as exc:  # noqa: BLE001
-        finish_run(session, run, "failed", f"{type(exc).__name__}: {exc}"[:500], metered.run_cost)
+        _record_failure(session, run, exc, metered.run_cost)
         raise
     run.steps = outcome["steps"]
     state = "done" if outcome["stop_reason"] in ("finished", "model stopped") else "stopped"

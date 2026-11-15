@@ -4,6 +4,7 @@ Each tool is a thin wrapper over the service layer. Arguments are IDs and short
 strings only; every limit is enforced inside the service it calls.
 """
 
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -13,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app import audit
 from app.connectors.sources import matches_keywords
-from app.llm.base import LLMClient, ToolSpec
+from app.llm.base import LLMClient, SpendCapExceeded, ToolSpec
 from app.models import Application, Campaign, Match, Posting, Preference, User
 from app.services import applications as app_service
 from app.services import cvs as cv_service
@@ -21,6 +22,8 @@ from app.services import matching, rules
 from app.services.campaigns import get_config
 from app.services.notify import notify
 from app.services.postings import company_of
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -204,9 +207,23 @@ def call_tool(ctx: AgentContext, name: str, args: dict) -> dict:
     if entry is None:
         return {"error": f"unknown tool {name}"}
     fn = entry[0]
+    # Each call runs in a savepoint: a failure undoes only this call, never the drafts already written in the
+    # run. The spend cap is passed up so the loop stops cleanly; other failures become an error result.
+    savepoint = ctx.session.begin_nested()
     try:
-        return fn(ctx, **{k: v for k, v in (args or {}).items()})
+        out = fn(ctx, **{k: v for k, v in (args or {}).items()})
+        savepoint.commit()
+        return out
+    except SpendCapExceeded:
+        savepoint.rollback()
+        raise
     except TypeError as exc:
+        savepoint.rollback()
         return {"error": f"bad arguments: {exc}"}
     except ValueError as exc:
+        savepoint.rollback()
         return {"error": str(exc)}
+    except Exception as exc:  # noqa: BLE001 - model or network failure inside one tool
+        savepoint.rollback()
+        log.warning("tool %s failed: %s", name, type(exc).__name__)
+        return {"error": f"{name} failed ({type(exc).__name__}); try another posting"}

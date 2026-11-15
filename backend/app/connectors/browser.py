@@ -191,6 +191,11 @@ def set_driver_factory(factory) -> None:
     _factory = factory
 
 
+def uses_real_browser() -> bool:
+    """True unless tests replaced the browser with a fake one."""
+    return _factory is None
+
+
 def new_driver() -> BrowserDriver:
     if _factory is not None:
         return _factory()

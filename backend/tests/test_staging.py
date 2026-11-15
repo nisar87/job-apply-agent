@@ -64,3 +64,20 @@ def test_manual_runs_can_finish_after_the_response(client, llm, monkeypatch):
             break
         time.sleep(0.2)
     assert runs and runs[0].state == "done"
+
+
+def test_staging_submits_only_practice_forms(monkeypatch):
+    import pytest
+
+    from app.services import forms, rules
+
+    _env(monkeypatch, APP_ENV="staging", FRONTEND_URL="https://jobs.aicvstudio.app")
+    forms._check_form_sandbox("https://jobs.aicvstudio.app/practice/form-dotnet.html")
+    forms._check_form_sandbox("http://localhost:8080/practice/form.html")
+    with pytest.raises(rules.RuleViolation) as refused:
+        forms._check_form_sandbox("https://boards.greenhouse.io/acme/jobs/1")
+    assert refused.value.code == "sandbox_required" and not refused.value.retry_later
+    _env(monkeypatch, APP_ENV="production")
+    forms._check_form_sandbox("https://boards.greenhouse.io/acme/jobs/1")
+    monkeypatch.delenv("APP_ENV")
+    get_settings.cache_clear()

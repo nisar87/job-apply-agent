@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from app import audit, storage
 from app.config import get_settings
-from app.connectors.browser import BrowserDriver, FormField, new_driver
+from app.connectors.browser import BrowserDriver, FormField, new_driver, uses_real_browser
 from app.llm.base import LLMClient
 from app.models import Application, AuditLog, Campaign, CVVersion, Posting, User
 from app.services import cvs as cv_service
@@ -273,6 +273,26 @@ def auto_submit_allowed(session: Session, user: User, campaign: Campaign, system
     return clean_reviews(session, user.id, system) >= get_settings().form_auto_submit_after
 
 
+PRACTICE_HOSTS = ("localhost", "127.0.0.1")
+
+
+def _check_form_sandbox(url: str) -> None:
+    """Outside production a real browser submits only practice forms on this site itself
+    (or localhost). Emails are redirected to the sandbox inbox, but a form cannot be,
+    so a real employer's form is refused: the user applies there by hand."""
+    s = get_settings()
+    if s.is_production:
+        return
+    host = (urlparse(url).hostname or "").lower()
+    own = (urlparse(s.frontend_url).hostname or "").lower()
+    if host not in PRACTICE_HOSTS and host != own:
+        raise rules.RuleViolation(
+            "sandbox_required",
+            "This is the test site, so it only submits practice forms. The form is filled in; "
+            "open the job and submit it yourself, or mark it as applied.",
+        )
+
+
 def approve_form(session: Session, app: Application, now: datetime | None = None) -> Application:
     """The user has looked at the filled form and its screenshot and agrees to submit it."""
     if app.status != "form_ready":
@@ -295,6 +315,8 @@ def submit_form(session: Session, app: Application, *, now: datetime | None = No
     approved_by_user = app.approved_at is not None
     if not approved_by_user and not auto_submit_allowed(session, user, campaign, system):
         raise rules.RuleViolation("needs_approval", "This form needs your approval before it is submitted", retry_later=True)
+    if driver is None and uses_real_browser():
+        _check_form_sandbox(posting.url)
     rules.check_send(session, app, campaign, config, user, posting, now)
     if campaign.state == "dry_run":
         slots.release_place(session, app)

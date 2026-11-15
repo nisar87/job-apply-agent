@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="robots" content="noindex, nofollow">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Senior .NET Developer (Remote) - Sample Logistics Group</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; max-width: 42rem; margin: 2rem auto; padding: 0 1rem; color: #222; background: #fff; }
+  label { display: block; margin-top: 1rem; font-weight: 600; }
+  input, select, textarea { display: block; width: 100%; margin-top: .25rem; padding: .5rem; font: inherit; box-sizing: border-box; }
+  input[type=radio], input[type=checkbox] { display: inline; width: auto; }
+  fieldset { margin-top: 1rem; }
+  button { margin-top: 1.5rem; padding: .6rem 1.2rem; font: inherit; }
+</style>
+</head>
+<body>
+<!-- PRACTICE POSTING WITH A WEB FORM for the private staging site. Not a real job. Submitting it sends
+     nothing anywhere: the page only shows a thank-you message. -->
+<main id="page">
+<h1>Senior .NET Developer (Remote)</h1>
+<p><strong>Company:</strong> Sample Logistics Group</p>
+<p><strong>Location:</strong> Remote. Full-time, permanent.</p>
+<p>Posted: 15 November 2026</p>
+
+<h2>About the role</h2>
+<p>Sample Logistics Group tracks shipments for retailers across Europe. You will build and maintain our C# services,
+design SQL Server schemas, and keep our ASP.NET APIs fast and reliable.</p>
+
+<h2>Requirements</h2>
+<ul>
+  <li>8+ years with C# and .NET</li>
+  <li>ASP.NET Web API and REST services</li>
+  <li>Microsoft SQL Server</li>
+  <li>Good written English</li>
+</ul>
+
+<h2>Apply</h2>
+<form id="apply" action="#" method="post">
+  <label for="name">Full name</label>
+  <input id="name" name="name" required>
+
+  <label for="email">Email</label>
+  <input id="email" name="email" type="email" required>
+
+  <label for="phone">Phone</label>
+  <input id="phone" name="phone" type="tel">
+
+  <label for="location">Where are you based?</label>
+  <input id="location" name="location">
+
+  <label for="years">Years of experience with .NET</label>
+  <select id="years" name="years" required>
+    <option value="">Choose</option>
+    <option>Less than 3</option>
+    <option>3 to 7</option>
+    <option>8 or more</option>
+  </select>
+
+  <fieldset>
+    <legend>Do you need visa sponsorship?</legend>
+    <label><input type="radio" name="visa" value="no"> No</label>
+    <label><input type="radio" name="visa" value="yes"> Yes</label>
+  </fieldset>
+
+  <label for="cv">CV</label>
+  <input id="cv" name="cv" type="file" required>
+
+  <label for="cover">Why are you interested in this role?</label>
+  <textarea id="cover" name="cover" rows="6"></textarea>
+
+  <label><input type="checkbox" name="privacy" required> I agree that my details are kept for this application</label>
+
+  <button type="submit">Submit application</button>
+</form>
+</main>
+<script>
+  document.getElementById("apply").addEventListener("submit", function (e) {
+    e.preventDefault();
+    document.getElementById("page").innerHTML =
+      "<h1>Thank you for applying</h1><p>Your application has been received. This was a practice form, so nothing was sent.</p>";
+  });
+</script>
+</body>
+</html>

@@ -13,7 +13,8 @@ from sqlalchemy import func, select
 from app.agent import runs as agent_runs
 from app.connectors.fetcher import Fetcher
 from app.db import system_session, user_session
-from app.llm import SpendCapExceeded, get_llm
+from app.llm import SpendCapExceeded
+from app.llm.access import client_for
 from app.models import Application, Campaign, Run, User
 from app.services import rules, slots
 from app.services.campaigns import get_config
@@ -43,7 +44,6 @@ def _active_users() -> list[uuid.UUID]:
 def tick_user(user_id: uuid.UUID, now: datetime | None = None, fetcher: Fetcher | None = None, **discover_kw) -> dict:
     now = now or datetime.now(UTC)
     done: dict = {"discovery": 0, "prepare": 0, "sent": 0, "errors": []}
-    llm = get_llm()
     with user_session(user_id) as s:
         user = s.get(User, user_id)
         zone = rules.user_zone(user)
@@ -56,7 +56,7 @@ def tick_user(user_id: uuid.UUID, now: datetime | None = None, fetcher: Fetcher 
                 last = _last_run(s, cid, "discovery")
                 if last is None or now - last >= DISCOVERY_EVERY:
                     with run_lock(user_id, "discovery"):
-                        agent_runs.discovery_run(s, llm, campaign, fetcher=fetcher, **discover_kw)
+                        agent_runs.discovery_run(s, client_for(s, user_id), campaign, fetcher=fetcher, **discover_kw)
                         done["discovery"] += 1
             with user_session(user_id) as s:
                 campaign = s.get(Campaign, cid)
@@ -68,12 +68,12 @@ def tick_user(user_id: uuid.UUID, now: datetime | None = None, fetcher: Fetcher 
                 remaining = config.daily_quota - rules.sent_today(s, user_id, zone, now, cid)
                 if near_window and waiting < remaining and (last is None or now - last >= PREPARE_EVERY):
                     with run_lock(user_id, "prepare"):
-                        agent_runs.prepare_run(s, llm, campaign, now)
+                        agent_runs.prepare_run(s, client_for(s, user_id), campaign, now)
                         done["prepare"] += 1
         except LockBusy:
             continue
-        except SpendCapExceeded:
-            done["errors"].append("spend cap reached")
+        except SpendCapExceeded as exc:   # includes NoModelKey
+            done["errors"].append(str(exc) or "spend cap reached")
         except Exception as exc:  # noqa: BLE001 - one campaign's failure must not stop the rest
             log.exception("tick failed for campaign %s", cid)
             done["errors"].append(f"{type(exc).__name__}")
@@ -88,13 +88,13 @@ def tick_user(user_id: uuid.UUID, now: datetime | None = None, fetcher: Fetcher 
 
 def inbox_user(user_id: uuid.UUID, now: datetime | None = None) -> dict:
     """Inbox sync, follow-ups and reminders for one user. Also called when Gmail pushes a change."""
-    from app.llm import MeteredLLM
+    from app.llm.access import llm_for
     from app.services import inbox
 
     now = now or datetime.now(UTC)
     try:
         with run_lock(user_id, "inbox"), user_session(user_id) as s:
-            llm = MeteredLLM(get_llm(), s, user_id)
+            llm = llm_for(s, user_id)
             result = inbox.sync_inbox(s, llm, user_id, now)
             result.update(inbox.followup_run(s, llm, user_id, now))
             result["reminders"] = inbox.renotify_urgent(s, user_id, now)

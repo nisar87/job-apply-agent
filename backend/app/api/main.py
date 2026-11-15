@@ -9,7 +9,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
-from app.api import account, auth, core, replies, work
+from app.api import account, admin, auth, core, replies, work
 from app.api.deps import current_user_id
 from app.config import get_settings
 from app.db import system_session
@@ -47,6 +47,7 @@ app.include_router(core.router)
 app.include_router(work.router)
 app.include_router(replies.router)
 app.include_router(account.router)
+app.include_router(admin.router)
 
 
 @app.get("/api/health")

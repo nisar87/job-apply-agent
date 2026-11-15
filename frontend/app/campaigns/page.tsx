@@ -132,6 +132,10 @@ function Editor({ campaign, onSaved }: { campaign: Campaign; onSaved: () => void
           )}
         </Field>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={c.exclude_agencies} onChange={(e) => set("exclude_agencies", e.target.checked)} /> Skip recruitment agencies</label>
+        <label className="flex items-start gap-2 text-sm">
+          <input className="mt-1" type="checkbox" checked={!!c.auto_fill_forms} onChange={(e) => set("auto_fill_forms", e.target.checked)} />
+          <span>Fill in employers&apos; web forms for me<span className="block text-xs text-slate">Two tries per job. Nothing is submitted until you check the filled form. Forms with a CAPTCHA or a login are left for you.</span></span>
+        </label>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={c.follow_up_enabled} onChange={(e) => set("follow_up_enabled", e.target.checked)} /> Send one follow-up after {c.follow_up_after_days} days without a reply</label>
       </div>
       <div className="mt-6 flex flex-wrap items-center gap-3">

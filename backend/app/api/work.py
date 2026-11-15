@@ -24,7 +24,7 @@ from app.connectors import mail as mail_connector
 from app.connectors.fetcher import Fetcher, FetchRefused
 from app.connectors.sources import RawPosting
 from app.db import user_session
-from app.llm import SpendCapExceeded, get_llm
+from app.llm import SpendCapExceeded
 from app.models import (
     CV,
     Application,
@@ -296,7 +296,9 @@ def _run_in_background(user_id: uuid.UUID, campaign_id: uuid.UUID, kind: str) ->
     try:
         with run_lock(user_id, kind), user_session(user_id) as session:
             campaign = session.get(Campaign, campaign_id)
-            llm = get_llm()
+            from app.llm.access import client_for
+
+            llm = client_for(session, user_id)
             if kind == "discovery":
                 agent_runs.discovery_run(session, llm, campaign, fetcher=Fetcher())
             elif kind == "prepare":

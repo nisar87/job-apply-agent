@@ -16,6 +16,26 @@ A hidden copy of the app for testing with real services before any public launch
 - `APP_ENV=staging`, so every application is redirected to `SANDBOX_RECIPIENT` (the Hotmail inbox). Nothing reaches an employer.
 - Gmail sign-in uses the project's own OAuth client in Testing mode; only listed test users can connect.
 
+## Admin panel and AI keys
+
+`/operator` (shown as **Admin** in the menu) is for the addresses in `ADMIN_EMAILS` and users marked `is_operator`.
+It sets how Gemini keys work for everyone (`app/llm/access.py`):
+
+- **My key for everyone**: every user runs on `GEMINI_API_KEY`, within a daily limit per user.
+- **Their key, or mine if allowed** (default): a user's own key (Account → AI key, stored encrypted) when they add one,
+  otherwise the operator's key for users allowed to use it.
+- **Everyone brings their own key**: users without a key are stopped until they add one.
+
+It also shows each user's spend, send limit and pause switch, and the log of web forms the agent could not fill
+or submit, grouped by cause (CAPTCHA, login, missing facts, agent error…).
+
+## Web forms
+
+With **Fill in employers' web forms for me** ticked on a search, each drafting run fills up to 5 forms, best match
+first. Each job gets two tries; failures are logged with their reason and the job stays on the apply-by-hand list.
+A filled form waits for the user's approval. Staging submits only the practice forms on its own site
+(`/practice/form-dotnet.html`); a real employer's form is refused there, because it cannot be sandboxed like email.
+
 ## What runs where
 
 | Part | Service |

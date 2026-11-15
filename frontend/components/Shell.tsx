@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api, getToken, loginPath, setToken } from "@/lib/api";
 
-type Me = { id: string; email: string; name: string };
+type Me = { id: string; email: string; name: string; is_admin?: boolean };
 
 const NAV = [
   { href: "/", label: "Today" },
@@ -24,6 +24,7 @@ export default function Shell({ title, children, actions }: { title: string; chi
   const router = useRouter();
   const [me, setMe] = useState<Me | null>(null);
   const [mailBroken, setMailBroken] = useState(false);
+  const [noKey, setNoKey] = useState("");
 
   useEffect(() => {
     if (!getToken()) {
@@ -34,7 +35,12 @@ export default function Shell({ title, children, actions }: { title: string; chi
     api<{ status: string }[]>("/api/mail/account")
       .then((accounts) => setMailBroken(accounts.some((a) => a.status === "error")))
       .catch(() => undefined);
+    api<{ source: string; message: string }>("/api/account/model-key")
+      .then((k) => setNoKey(k.source === "none" ? k.message || "No Gemini API key is set." : ""))
+      .catch(() => undefined);
   }, [router]);
+
+  const nav = me?.is_admin ? [...NAV, { href: "/operator", label: "Admin" }] : NAV;
 
   function signOut() {
     setToken(null);
@@ -46,7 +52,7 @@ export default function Shell({ title, children, actions }: { title: string; chi
       <nav className="border-b border-rule px-4 py-4 md:w-52 md:shrink-0 md:border-b-0 md:border-r md:py-8" aria-label="Main">
         <p className="letter text-lg">Job Apply Agent</p>
         <ul className="mt-4 flex flex-wrap gap-x-4 gap-y-1 text-sm md:block md:space-y-1">
-          {NAV.map((item) => {
+          {nav.map((item) => {
             const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
             return (
               <li key={item.href}>
@@ -71,6 +77,12 @@ export default function Shell({ title, children, actions }: { title: string; chi
           <p className="mb-4 border-l-4 border-problem bg-sheet px-3 py-2 text-sm" role="alert">
             Gmail stopped accepting the agent&apos;s sign-in, so nothing is being sent or read.{" "}
             <Link className="font-semibold underline" href="/account">Reconnect Gmail</Link> and your searches resume by themselves.
+          </p>
+        )}
+        {noKey && (
+          <p className="mb-4 border-l-4 border-problem bg-sheet px-3 py-2 text-sm" role="alert">
+            The agent is stopped: {noKey.replace(/^no Gemini API key: /, "there is no Gemini API key to run on. ")}{" "}
+            <Link className="font-semibold underline" href="/account">Add your key</Link>
           </p>
         )}
         <div className="mb-6 flex flex-wrap items-end justify-between gap-3">

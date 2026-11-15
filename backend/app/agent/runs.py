@@ -59,7 +59,18 @@ def prepare_run(session: Session, llm: LLMClient, campaign: Campaign, now: datet
         raise
     run.steps = outcome["steps"]
     state = "done" if outcome["stop_reason"] in ("finished", "model stopped") else "stopped"
-    finish_run(session, run, state, f"{outcome['summary']} ({outcome['stop_reason']})", metered.run_cost)
+    summary = f"{outcome['summary']} ({outcome['stop_reason']})"
+    if get_config(campaign).auto_fill_forms and outcome["stop_reason"] != "spend cap":
+        from app.llm.base import SpendCapExceeded
+        from app.services import forms
+
+        try:
+            filled = forms.auto_fill(session, metered, campaign)
+            if filled["filled"] or filled["failed"]:
+                summary += f"; forms filled {len(filled['filled'])}, could not fill {len(filled['failed'])}"
+        except SpendCapExceeded:
+            summary += "; forms not filled (spend cap)"
+    finish_run(session, run, state, summary, metered.run_cost)
     _tell_about_new_drafts(session, campaign, run.created_at)
     return outcome
 
@@ -68,10 +79,11 @@ def _tell_about_new_drafts(session: Session, campaign: Campaign, since: datetime
     """One notice per run that left drafts waiting for the user's approval, so they know to look today."""
     rows = session.execute(
         select(Application.status, Application.subject).where(
-            Application.campaign_id == campaign.id, Application.status.in_(("awaiting_approval", "manual_apply")),
+            Application.campaign_id == campaign.id,
+            Application.status.in_(("awaiting_approval", "form_ready", "manual_apply")),
             Application.created_at >= since)
     ).all()
-    drafts = [s for st, s in rows if st == "awaiting_approval"]
+    drafts = [s for st, s in rows if st in ("awaiting_approval", "form_ready")]
     on_site = [s for st, s in rows if st == "manual_apply"]
     if not rows:
         return

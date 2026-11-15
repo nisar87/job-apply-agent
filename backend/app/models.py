@@ -59,6 +59,11 @@ class User(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(String(32), default="active")  # active | paused | deleted
     is_operator: Mapped[bool] = mapped_column(Boolean, default=False)
     daily_send_limit: Mapped[int] = mapped_column(Integer, default=20)
+    # Model access (see app/llm/access.py): the user's own Gemini key, encrypted, and the limits on each key.
+    llm_api_key_enc: Mapped[str] = mapped_column(Text, default="", server_default="")
+    platform_key_allowed: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    platform_cap_usd: Mapped[float | None] = mapped_column(Float, nullable=True)  # set by the admin; None = default
+    own_key_cap_usd: Mapped[float | None] = mapped_column(Float, nullable=True)   # set by the user; None = no cap
     escalation_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
     style_guide: Mapped[str] = mapped_column(Text, default="")
     sample_emails: Mapped[list] = mapped_column(JsonType, default=list)

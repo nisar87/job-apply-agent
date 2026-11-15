@@ -73,8 +73,21 @@ class MeteredLLM:
         self.client = client
         self.session = session
         self.user_id = user_id
-        self.cap_usd = get_settings().llm_daily_spend_cap_usd if cap_usd is None else cap_usd
+        self.cap_usd = self._default_cap() if cap_usd is None else cap_usd
         self.run_cost = 0.0
+
+    def _default_cap(self) -> float:
+        """The user's cap for the key their work runs on (admin default, per-user override, or their own)."""
+        from app.llm import access
+        from app.models import User
+
+        user = self.session.get(User, self.user_id)
+        if user is None:
+            return get_settings().llm_daily_spend_cap_usd
+        try:
+            return access.cap_for(user)
+        except Exception:  # noqa: BLE001 - settings store unreachable: fall back to the configured cap
+            return get_settings().llm_daily_spend_cap_usd
 
     def _usage_row(self) -> UsageDaily:
         today = datetime.now(UTC).date()

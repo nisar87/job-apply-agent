@@ -4,7 +4,7 @@ import uuid
 
 from app import audit
 from app.db import user_session
-from app.llm import MeteredLLM, get_llm
+from app.llm.access import llm_for
 from app.runs import finish_run, start_run
 from app.tasks.celery_app import celery_app
 from app.tasks.locks import run_lock
@@ -16,7 +16,7 @@ def ping_llm(user_id: str) -> dict:
     uid = uuid.UUID(user_id)
     with run_lock(uid, "ping"), user_session(uid) as session:
         run = start_run(session, uid, "ping")
-        llm = MeteredLLM(get_llm(), session, uid)
+        llm = llm_for(session, uid)
         result = llm.generate("Reply with the single word: pong", task="ping")
         audit.record(
             session, user_id=uid, actor="system", tool="ping_llm", input={}, run_id=run.id,

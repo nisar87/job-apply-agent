@@ -12,7 +12,7 @@ from app import audit, storage
 from app.agent import onboarding
 from app.api.deps import current_user_id, db
 from app.api.schemas import BlockOut, CampaignOut, CVOut
-from app.llm import MeteredLLM, SpendCapExceeded, get_llm
+from app.llm import MeteredLLM, SpendCapExceeded
 from app.models import CV, Block, Campaign, Preference
 from app.services import campaigns as campaign_service
 from app.services import cvs as cv_service
@@ -22,7 +22,10 @@ router = APIRouter(prefix="/api", tags=["core"])
 
 
 def _llm(session: Session, user_id: uuid.UUID) -> MeteredLLM:
-    return MeteredLLM(get_llm(), session, user_id)
+    """The user's model client on the key the admin's policy allows (raises NoModelKey, a SpendCapExceeded)."""
+    from app.llm.access import llm_for
+
+    return llm_for(session, user_id)
 
 
 def _own(session: Session, model, item_id: uuid.UUID):

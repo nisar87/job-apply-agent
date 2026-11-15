@@ -13,7 +13,7 @@ from app.migrate import migrate
 from app.models import Base
 from app.schema import create_schema
 
-HEAD = "0002"
+HEAD = "0003"
 URL = os.environ.get("TEST_MIGRATE_DATABASE_URL",
                      "postgresql+psycopg://jobagent_owner:owner@localhost:5432/jobagent_migrate")
 

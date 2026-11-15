@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import ModelKey from "@/components/ModelKey";
 import Shell from "@/components/Shell";
 import { ErrorNote, errorText, useLoad } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -67,6 +68,8 @@ export default function AccountPage() {
         ))}
       </ul>
       <button className="btn mt-3" onClick={connectGmail}>{mail.data && mail.data.length ? "Reconnect Gmail" : "Connect Gmail"}</button>
+
+      <ModelKey />
 
       <h2 className="mt-10 text-xl">About you</h2>
       {me.data && (

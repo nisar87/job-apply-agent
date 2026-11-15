@@ -49,6 +49,13 @@ class UserOut(BaseModel):
     escalation_email: str | None
     style_guide: str
     sample_emails: list
+    is_admin: bool = False
+
+
+def _user_out(user: User) -> UserOut:
+    out = UserOut.model_validate(user, from_attributes=True)
+    out.is_admin = bool(user.is_operator or get_settings().is_admin_email(user.email))
+    return out
 
 
 class UserPatch(BaseModel):
@@ -97,7 +104,7 @@ def me(user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends
     user = session.get(User, user_id)
     if not user:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Account not found")
-    return user
+    return _user_out(user)
 
 
 @router.patch("/me", response_model=UserOut)
@@ -106,4 +113,4 @@ def update_me(body: UserPatch, user_id: uuid.UUID = Depends(current_user_id), se
     for key, value in body.model_dump(exclude_unset=True).items():
         setattr(user, key, value)
     session.flush()
-    return user
+    return _user_out(user)

@@ -61,6 +61,8 @@ class CampaignConfig(BaseModel):
     salary_min: float | None = None  # per year, in the posting's currency
     max_posting_age_days: int | None = Field(default=7, ge=1, le=60)
     exclude_agencies: bool = False
+    # Fill employers' web application forms automatically (up to two tries each); the user still approves the result.
+    auto_fill_forms: bool = False
     sources: list[str] = Field(default_factory=lambda: [
         "adzuna", "arbeitnow", "remotive", "jobicy", "himalayas", "weworkremotely", "remoteok", "workingnomads",
         "greenhouse", "lever", "ashby", "workable", "smartrecruiters", "recruitee", "personio", "teamtailor",

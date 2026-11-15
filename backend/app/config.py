@@ -62,6 +62,8 @@ class Settings(BaseSettings):
     # A private deployment (staging): only these addresses may sign up (comma separated; empty = anyone),
     # and search engines are told not to index anything.
     signup_allowlist: str = ""
+    # Accounts with these addresses see the admin panel (comma separated), as well as users marked is_operator.
+    admin_emails: str = ""
     hide_from_search: bool = False
     # Testing only: let the agent answer employers outside weekday working hours.
     agent_reply_any_time: bool = False
@@ -85,6 +87,10 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.app_env == "production"
+
+    def is_admin_email(self, email: str) -> bool:
+        admins = {e.strip().lower() for e in self.admin_emails.split(",") if e.strip()}
+        return email.strip().lower() in admins
 
     def may_sign_up(self, email: str) -> bool:
         allowed = {e.strip().lower() for e in self.signup_allowlist.split(",") if e.strip()}

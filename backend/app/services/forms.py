@@ -114,7 +114,9 @@ def standard_answer(field: FormField, *, user: User, profile: dict, facts: dict,
     if _has(label, "website", "portfolio", "homepage"):
         links = [u for u in profile.get("links", []) if not any(s in u.lower() for s in ("linkedin", "github", "xing"))]
         return links[0] if links else (("skip",) if not field.required else None)
-    if _has(label, "cover letter", "anschreiben", "motivation", "why do you want", "additional information", "message"):
+    if _has(label, "cover letter", "anschreiben", "motivation", "why do you want", "additional information", "message",
+            "why are you interested", "interested in", "why this role", "why us", "why would you", "tell us about yourself",
+            "about you", "warum"):
         return cover_text if field.type == "textarea" else None
     if _has(label, "salary", "gehalt", "compensation"):
         if config.may_state_salary and facts.get("salary_expectation"):
@@ -258,6 +260,56 @@ def prepare_form(session: Session, llm: LLMClient, app: Application, driver: Bro
     finally:
         if own_driver:
             driver.close()
+
+
+MAX_FORM_ATTEMPTS = 2   # automatic tries per job before it is left for the user
+FORMS_PER_RUN = 5       # each form takes the browser about half a minute
+
+
+def form_attempts(session: Session, app_id: uuid.UUID) -> int:
+    """Failed tries at filling this job's form (automatic or by the user's button)."""
+    rows = session.execute(select(AuditLog.result).where(AuditLog.tool == "prepare_form", AuditLog.entity_id == app_id)).scalars()
+    return sum(1 for r in rows if (r or {}).get("stopped"))
+
+
+def auto_fill(session: Session, llm: LLMClient, campaign: Campaign, limit: int = FORMS_PER_RUN) -> dict:
+    """Fill the web forms of this search's on-site jobs, best match first. A job gets MAX_FORM_ATTEMPTS
+    tries over successive runs; every failure is logged with its reason and the run moves on. Nothing is
+    submitted here: a filled form waits for the user's approval like an email draft."""
+    from app.llm.base import SpendCapExceeded
+
+    apps = session.execute(
+        select(Application).where(Application.campaign_id == campaign.id, Application.status == "manual_apply",
+                                  Application.route == "form").order_by(Application.score.desc().nulls_last())
+    ).scalars().all()
+    filled, failed = [], []
+    for app in apps:
+        if len(filled) + len(failed) >= limit:
+            break
+        tries = form_attempts(session, app.id)
+        if tries >= MAX_FORM_ATTEMPTS:
+            continue
+        try:
+            with session.begin_nested():
+                prepare_form(session, llm, app)
+            filled.append(str(app.id))
+            continue
+        except FormStopped as stop:
+            reason = stop.reason
+        except SpendCapExceeded:
+            raise
+        except Exception as exc:  # noqa: BLE001 - a browser or site failure must not stop the other forms
+            reason = f"unexpected error: {type(exc).__name__}: {exc}"[:400]
+        # The savepoint undid prepare_form's own record, so the failure is written here, once.
+        app = session.get(Application, app.id)
+        posting = session.get(Posting, app.posting_id)
+        app.skip_reason = f"Apply by hand: {reason}"
+        audit.record(session, user_id=app.user_id, actor="agent", tool="prepare_form", entity_id=app.id,
+                     input={"url": posting.url, "hiring_system": hiring_system(posting.url), "auto": True},
+                     result={"stopped": True, "attempt": tries + 1, "final": tries + 1 >= MAX_FORM_ATTEMPTS}, reason=reason)
+        session.flush()
+        failed.append(str(app.id))
+    return {"filled": filled, "failed": failed}
 
 
 def clean_reviews(session: Session, user_id: uuid.UUID, system: str) -> int:

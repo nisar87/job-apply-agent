@@ -147,7 +147,7 @@ def daily_stats(days: int = Query(14, ge=1, le=90), user_id: uuid.UUID = Depends
 
 def _operator(user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")) -> uuid.UUID:
     user = session.get(User, user_id)
-    if not user or not user.is_operator:
+    if not user or not (user.is_operator or get_settings().is_admin_email(user.email)):
         raise HTTPException(404, "Not found")
     return user_id
 

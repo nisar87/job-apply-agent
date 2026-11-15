@@ -15,7 +15,7 @@ concurrency:
 env:
   PROJECT: job-apply-agent-staging
   REGION: europe-west1
-  DOMAIN: jaa-x7k2.nisarworks.com
+  DOMAIN: jobs.aicvstudio.app   # AI CV Studio's domain; this app is planned to become its jobs module
   REGISTRY: europe-west1-docker.pkg.dev/job-apply-agent-staging/jaa
   SQL_CONN: job-apply-agent-staging:europe-west1:jaa-db
   RUN_SA: jaa-run@job-apply-agent-staging.iam.gserviceaccount.com

@@ -2,7 +2,8 @@
 # Google Secret Manager and are created once by setup.ps1.
 $Project   = "job-apply-agent-staging"
 $Region    = "europe-west1"             # Firebase Hosting can route to Cloud Run here
-$Domain    = "jaa-x7k2.nisarworks.com"  # deliberately hard to guess; invite-only and not indexed anyway
+$Domain    = "jobs.aicvstudio.app"      # under AI CV Studio's domain (planned merge); invite-only and not indexed
+$OldDomain = "jaa-x7k2.nisarworks.com"  # first address; now redirects to $Domain
 $Repo      = "jaa"                      # Artifact Registry repository
 $SqlInst   = "jaa-db"
 $Bucket    = "$Project-files"

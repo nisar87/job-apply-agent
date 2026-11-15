@@ -4,10 +4,10 @@ A hidden copy of the app for testing with real services before any public launch
 
 | | |
 | --- | --- |
-| Address | https://jaa-x7k2.nisarworks.com (also https://job-apply-agent-staging.web.app) |
+| Address | https://jobs.aicvstudio.app (also https://job-apply-agent-staging.web.app; the first address, jaa-x7k2.nisarworks.com, redirects here) |
 | Firebase / Google Cloud project | `job-apply-agent-staging`, its own project; billing account "Firebase Payment", budget alert US$20/month |
 | Owner account | noreply.dotnetobject@gmail.com |
-| DNS | one CNAME `jaa-x7k2` → `job-apply-agent-staging.web.app` at Namecheap; nothing else on nisarworks.com changed |
+| DNS | at Namecheap: CNAME `jobs` on aicvstudio.app and `jaa-x7k2` on nisarworks.com, both → `job-apply-agent-staging.web.app`. Nothing else on either domain changed; AI CV Studio's own site and App Hosting are untouched |
 
 ## How it stays private
 

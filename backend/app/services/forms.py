@@ -213,6 +213,11 @@ def prepare_form(session: Session, llm: LLMClient, app: Application, driver: Bro
     if app.status != "manual_apply" or app.route != "form":
         raise FormStopped("Only a form-only application on the manual-apply list can be prepared")
     posting, campaign, config, user, version = _context(session, app)
+    if not app.body:
+        # The cover note is written only now that the form is actually being filled.
+        from app.services.applications import write_cover_note
+
+        write_cover_note(session, llm, app)
     own_driver = driver is None
     driver = driver or new_driver()
     system = hiring_system(posting.url)

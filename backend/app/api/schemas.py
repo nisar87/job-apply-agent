@@ -70,6 +70,8 @@ class ApplicationOut(Out):
     url: str = ""
     cv_label: str = ""
     campaign_name: str = ""
+    match_summary: str = ""          # why the agent thinks the job fits, in the scorer's words
+    match_strengths: list[str] = []  # requirements the CV meets
 
 
 class MatchOut(Out):

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { api, setToken } from "@/lib/api";
+import { afterLogin, api, setToken } from "@/lib/api";
 
 export default function AuthForm({ mode }: { mode: "login" | "signup" }) {
   const router = useRouter();
@@ -22,7 +22,7 @@ export default function AuthForm({ mode }: { mode: "login" | "signup" }) {
       const body = mode === "signup" ? { email, password, name, timezone } : { email, password };
       const res = await api<{ access_token: string }>(`/api/auth/${mode}`, { method: "POST", json: body });
       setToken(res.access_token);
-      router.push(mode === "signup" ? "/setup" : "/");
+      router.push(mode === "signup" ? "/setup" : afterLogin("/"));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {

@@ -66,18 +66,33 @@ def prepare_run(session: Session, llm: LLMClient, campaign: Campaign, now: datet
 
 def _tell_about_new_drafts(session: Session, campaign: Campaign, since: datetime) -> None:
     """One notice per run that left drafts waiting for the user's approval, so they know to look today."""
-    titles = session.execute(
-        select(Application.subject).where(Application.campaign_id == campaign.id, Application.status == "awaiting_approval",
-                                          Application.created_at >= since)
-    ).scalars().all()
-    if not titles:
+    rows = session.execute(
+        select(Application.status, Application.subject).where(
+            Application.campaign_id == campaign.id, Application.status.in_(("awaiting_approval", "manual_apply")),
+            Application.created_at >= since)
+    ).all()
+    drafts = [s for st, s in rows if st == "awaiting_approval"]
+    on_site = [s for st, s in rows if st == "manual_apply"]
+    if not rows:
         return
     from app.services.notify import notify
 
-    lines = "\n".join(f"- {t}" for t in titles[:10]) + (f"\n…and {len(titles) - 10} more" if len(titles) > 10 else "")
-    title = (f"{len(titles)} new drafts are ready for your approval" if len(titles) > 1
-             else "A new draft is ready for your approval")
-    notify(session, campaign.user_id, "drafts_ready", title, f"Search: {campaign.name}\n{lines}", "/drafts")
+    def listed(items):
+        return "\n".join(f"- {t}" for t in items[:10]) + (f"\n…and {len(items) - 10} more" if len(items) > 10 else "")
+
+    parts = []
+    if drafts:
+        parts.append(f"Ready for your approval:\n{listed(drafts)}")
+    if on_site:
+        parts.append(f"Apply on the employer's site (open them from Drafts):\n{listed(on_site)}")
+    if drafts:
+        title = (f"{len(drafts)} new drafts are ready for your approval" if len(drafts) > 1
+                 else "A new draft is ready for your approval")
+        if on_site:
+            title += f", plus {len(on_site)} to apply on site"
+    else:
+        title = f"{len(on_site)} new job{'s' if len(on_site) > 1 else ''} to apply to on the employer's site"
+    notify(session, campaign.user_id, "drafts_ready", title, f"Search: {campaign.name}\n\n" + "\n\n".join(parts), "/drafts")
 
 
 def dispatch_run(session: Session, user_id: uuid.UUID, now: datetime | None = None) -> dict:

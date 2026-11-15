@@ -72,7 +72,8 @@ def test_the_spend_cap_inside_a_tool_stops_the_run_and_keeps_its_drafts(client, 
         drafts = s.execute(select(Application)).scalars().all()
         run = s.execute(select(Run).where(Run.type == "prepare")).scalar_one()
     assert out["stop_reason"] == "spend cap" and run.state == "stopped"
-    assert len(drafts) == 1                         # the draft written before the cap is kept
+    email_drafts = [d for d in drafts if d.route == "email"]
+    assert len(email_drafts) == 1                   # the draft written before the cap is kept
 
 
 def test_a_failing_tool_is_contained_and_the_run_goes_on(client, llm):

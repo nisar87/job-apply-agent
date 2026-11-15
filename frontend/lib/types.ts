@@ -4,6 +4,7 @@ export type Application = {
   check_results: { passed?: boolean; problems?: string[] }; approved_at: string | null; planned_send_at: string | null;
   sent_at: string | null; expires_at: string | null; created_at: string; updated_at: string;
   title: string; company: string; location: string; url: string; cv_label: string; campaign_name: string;
+  match_summary?: string; match_strengths?: string[];
 };
 
 export type Match = {

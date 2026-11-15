@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { api, getToken, setToken } from "@/lib/api";
+import { api, getToken, loginPath, setToken } from "@/lib/api";
 
 type Me = { id: string; email: string; name: string };
 
@@ -23,13 +23,17 @@ export default function Shell({ title, children, actions }: { title: string; chi
   const pathname = usePathname();
   const router = useRouter();
   const [me, setMe] = useState<Me | null>(null);
+  const [mailBroken, setMailBroken] = useState(false);
 
   useEffect(() => {
     if (!getToken()) {
-      router.replace("/login");
+      router.replace(loginPath());
       return;
     }
     api<Me>("/api/auth/me").then(setMe).catch(() => undefined);
+    api<{ status: string }[]>("/api/mail/account")
+      .then((accounts) => setMailBroken(accounts.some((a) => a.status === "error")))
+      .catch(() => undefined);
   }, [router]);
 
   function signOut() {
@@ -49,7 +53,7 @@ export default function Shell({ title, children, actions }: { title: string; chi
                 <Link
                   href={item.href}
                   aria-current={active ? "page" : undefined}
-                  className={`block rounded px-2 py-1 ${active ? "bg-ink text-white" : "text-ink hover:bg-rule"}`}
+                  className={`block rounded px-2 py-2 md:py-1 ${active ? "bg-ink text-white" : "text-ink hover:bg-rule"}`}
                 >
                   {item.label}
                 </Link>
@@ -57,12 +61,18 @@ export default function Shell({ title, children, actions }: { title: string; chi
             );
           })}
         </ul>
-        <div className="mt-6 hidden text-xs text-slate md:block">
+        <div className="mt-3 flex items-center gap-3 text-xs text-slate md:mt-6 md:block">
           {me && <p className="truncate">{me.email}</p>}
-          <button className="mt-1 underline" onClick={signOut}>Sign out</button>
+          <button className="py-2 underline md:mt-1 md:py-0" onClick={signOut}>Sign out</button>
         </div>
       </nav>
       <main className="min-w-0 flex-1 px-4 py-6 md:px-8 md:py-8">
+        {mailBroken && (
+          <p className="mb-4 border-l-4 border-problem bg-sheet px-3 py-2 text-sm" role="alert">
+            Gmail stopped accepting the agent&apos;s sign-in, so nothing is being sent or read.{" "}
+            <Link className="font-semibold underline" href="/account">Reconnect Gmail</Link> and your searches resume by themselves.
+          </p>
+        )}
         <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
           <h1 className="text-3xl">{title}</h1>
           {actions}

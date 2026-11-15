@@ -33,7 +33,9 @@ export default function Today() {
   const dash = useLoad<Dash>("/api/dashboard");
   const setup = useLoad<Setup>("/api/setup/status");
   const stats = useLoad<Day[]>("/api/stats/daily?days=13");
+  const replies = useLoad<{ urgency: string }[]>("/api/escalations");
   const d = dash.data;
+  const urgent = (replies.data || []).filter((r) => r.urgency === "urgent").length;
   return (
     <Shell title="Today">
       <ErrorNote message={dash.error} />
@@ -49,9 +51,15 @@ export default function Today() {
       )}
       {d && (
         <>
-          <section className="grid grid-cols-2 gap-6 border-b border-rule pb-8 sm:grid-cols-4">
+          {urgent > 0 && (
+            <Link href="/inbox" className="mb-6 block border-l-4 border-problem bg-sheet px-4 py-3 text-sm font-semibold text-problem">
+              {urgent === 1 ? "An urgent reply needs you" : `${urgent} urgent replies need you`} (interview, offer or similar). Open the inbox
+            </Link>
+          )}
+          <section className="grid grid-cols-2 gap-6 border-b border-rule pb-8 sm:grid-cols-5">
+            <Figure n={(replies.data || []).length} label="replies waiting for you" href="/inbox" />
+            <Figure n={d.today.drafts_waiting + d.today.manual_apply} label="drafts and jobs to apply to" href="/drafts" />
             <Figure n={`${d.today.sent} of ${d.today.quota}`} label="sent today" href="/applications?status=sent" />
-            <Figure n={d.today.drafts_waiting} label="drafts waiting for you" href="/drafts" />
             <Figure n={d.today.queued} label="approved, going out" href="/applications?status=queued" />
             <Figure n={d.today.needs_attention} label="need attention" href="/applications?status=failed" />
           </section>
@@ -87,8 +95,8 @@ export default function Today() {
           )}
           {d.today.manual_apply > 0 && (
             <p className="mt-8 text-sm">
-              {d.today.manual_apply} good {d.today.manual_apply === 1 ? "match accepts" : "matches accept"} applications only through a web form.{" "}
-              <Link className="underline" href="/applications?tab=manual">Apply by hand</Link>
+              {d.today.manual_apply} good {d.today.manual_apply === 1 ? "match takes" : "matches take"} applications on the employer&apos;s own site.{" "}
+              <Link className="underline" href="/drafts">See them in Drafts</Link>
             </p>
           )}
           <h2 className="mt-8 text-xl">Searches</h2>

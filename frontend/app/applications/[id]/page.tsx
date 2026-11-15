@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import FormReview from "@/components/FormReview";
 import Shell from "@/components/Shell";
@@ -19,6 +19,7 @@ type Detail = {
 
 export default function ApplicationPage() {
   const { id } = useParams<{ id: string }>();
+  const router = useRouter();
   const { data, error, reload } = useLoad<Detail>(id ? `/api/applications/${id}` : null);
   const [subject, setSubject] = useState<string | null>(null);
   const [body, setBody] = useState<string | null>(null);
@@ -34,12 +35,17 @@ export default function ApplicationPage() {
       await api(`/api/applications/${id}/${path}`, { method: "POST", json });
       setSubject(null);
       setBody(null);
+      // Decided: go straight to the next draft waiting, or back to the list when this was the last one.
+      const waiting = await api<Application[]>("/api/applications?status=awaiting_approval,failed");
+      const next = waiting.find((x) => x.id !== id);
+      router.push(next ? `/applications/${next.id}` : "/drafts");
+      return;
     } catch (e) {
       setActionError(errorText(e));
     } finally {
       setBusy(false);
-      reload();
     }
+    reload();
   }
 
   return (
@@ -57,6 +63,12 @@ export default function ApplicationPage() {
               {a.recipient && <span>to {a.recipient}</span>}
               {a.cv_label && <span>with CV “{a.cv_label}”</span>}
             </p>
+            {data.posting.description && (
+              <details className="mt-3 text-sm">
+                <summary className="cursor-pointer text-slate">Read the job ad</summary>
+                <p className="mt-2 max-h-96 max-w-prose overflow-y-auto whitespace-pre-wrap border border-rule bg-sheet p-3">{data.posting.description}</p>
+              </details>
+            )}
             {a.skip_reason && <p className="mt-2 text-sm text-problem">{a.skip_reason}</p>}
             {a.check_results?.problems && a.check_results.problems.length > 0 && (
               <ul className="mt-2 list-disc pl-5 text-sm text-problem">{a.check_results.problems.map((p) => <li key={p}>{p}</li>)}</ul>
@@ -72,7 +84,11 @@ export default function ApplicationPage() {
                     {subject !== null || body !== null ? "Save changes and approve" : "Approve"}
                   </button>
                   <button className="btn btn-quiet" disabled={busy} onClick={() => act("reject", { reason: "rejected by you" })}>Reject</button>
-                  <button className="btn btn-quiet" disabled={busy} onClick={() => act("reject", { reason: "never this company", never_company: true })}>Never this company</button>
+                  <button className="btn btn-quiet" disabled={busy} onClick={() => {
+                    if (window.confirm(`Never apply to ${a.company || "this company"} again? This cannot be undone from here.`)) {
+                      act("reject", { reason: "never this company", never_company: true });
+                    }
+                  }}>Never this company</button>
                 </div>
               </div>
             ) : (

@@ -21,6 +21,67 @@ from app.tasks.locks import get_redis, idempotency_key
 
 STALE_SENDING_MINUTES = 10
 APPROVED_VALID_DAYS = 7
+MANUAL_VALID_DAYS = 14   # a job to apply to on the employer's site stays on the list this long
+
+
+def resume_after_reconnect(session: Session, user_id: uuid.UUID) -> list[str]:
+    """Searches paused only because Gmail stopped accepting the sign-in go back to how they were."""
+    resumed = []
+    for campaign in session.execute(select(Campaign).where(Campaign.user_id == user_id, Campaign.state == "paused")).scalars():
+        key = f"paused_by_mail:{campaign.id}"
+        previous = get_redis().get(key)
+        if previous:
+            campaign.state = previous
+            get_redis().delete(key)
+            resumed.append(campaign.name)
+    if resumed:
+        session.flush()
+        audit.record(session, user_id=user_id, actor="system", tool="resume_after_reconnect", input={"searches": resumed})
+    return resumed
+
+
+def write_cover_note(session: Session, llm: LLMClient, app: Application) -> str:
+    """The cover note for a form-only application, written the first time it is needed."""
+    if app.body:
+        return app.body
+    posting = session.get(Posting, app.posting_id)
+    campaign = session.get(Campaign, app.campaign_id)
+    user = session.get(User, app.user_id)
+    version = session.get(CVVersion, app.cv_version_id)
+    match = session.get(Match, app.match_id) if app.match_id else None
+    company = company_of(session, posting)
+    draft, checks = write_checked(
+        llm, posting=posting, company_name=company.name if company else "", version=version,
+        rubric=(match.rubric if match else {}) or {}, fact_sheet=cv_service.get_fact_sheet(session, user.id),
+        style_guide=user.style_guide or "", sample_emails=list(user.sample_emails or []),
+        user_name=user.name or user.email, config=get_config(campaign), previous_bodies=previous_bodies(session, user.id),
+    )
+    app.subject, app.body, app.claims = draft.get("subject", app.subject), draft.get("body", ""), draft.get("claims", [])
+    app.check_results = checks
+    session.flush()
+    return app.body
+
+
+def mark_applied_by_hand(session: Session, app: Application) -> Application:
+    """The user applied on the employer's site themselves. It now counts as sent: cooldowns, the employer limit
+    and reply tracking cover it, and the agent will not offer it again."""
+    if app.status not in ("manual_apply", "form_ready"):
+        raise ApplicationError("Only a job on the apply-on-site list can be marked as applied")
+    now = datetime.now(UTC)
+    app.status, app.sent_at, app.approved_at, app.skip_reason = "sent", now, app.approved_at or now, ""
+    app.follow_up_due = None
+    session.flush()
+    audit.record(session, user_id=app.user_id, actor="user", tool="applied_by_hand", entity_id=app.id)
+    return app
+
+
+def skip_manual(session: Session, app: Application, reason: str = "not for you") -> Application:
+    if app.status not in ("manual_apply", "form_ready"):
+        raise ApplicationError("Only a job on the apply-on-site list can be skipped here")
+    app.status, app.skip_reason = "skipped", reason[:200]
+    session.flush()
+    audit.record(session, user_id=app.user_id, actor="user", tool="skip_manual", entity_id=app.id, reason=reason[:200])
+    return app
 
 
 class ApplicationError(ValueError):
@@ -51,12 +112,17 @@ def create_draft(session: Session, llm: LLMClient, campaign: Campaign, match: Ma
     company = company_of(session, posting)
     company_name = company.name if company else ""
     fact_sheet = cv_service.get_fact_sheet(session, user.id)
-    draft, checks = write_checked(
-        llm, posting=posting, company_name=company_name, version=version, rubric=match.rubric or {},
-        fact_sheet=fact_sheet, style_guide=user.style_guide or "", sample_emails=list(user.sample_emails or []),
-        user_name=user.name or user.email, config=config, previous_bodies=previous_bodies(session, user.id),
-    )
     route = "email" if match.decision == "apply" else "form"
+    if route == "form":
+        # Applied to on the employer's site: no email is written now. A cover note is written only if the user
+        # asks the agent to fill the form (see write_cover_note), so unused jobs cost nothing.
+        draft, checks = {"subject": posting.title, "body": "", "language": "en", "claims": []}, {"passed": True, "problems": []}
+    else:
+        draft, checks = write_checked(
+            llm, posting=posting, company_name=company_name, version=version, rubric=match.rubric or {},
+            fact_sheet=fact_sheet, style_guide=user.style_guide or "", sample_emails=list(user.sample_emails or []),
+            user_name=user.name or user.email, config=config, previous_bodies=previous_bodies(session, user.id),
+        )
     if route == "form":
         status = "manual_apply"
     elif not checks["passed"]:
@@ -71,7 +137,7 @@ def create_draft(session: Session, llm: LLMClient, campaign: Campaign, match: Ma
         claims=draft.get("claims", []), attachments=[{"name": version.file_name, "key": version.file_key}],
         recipient=posting.contact_email, recipient_domain=registered_domain(domain_of(posting.contact_email)) if posting.contact_email else None,
         company_id=posting.company_id, score=match.total_score, neutral_score=match.neutral_score, check_results=checks,
-        expires_at=now + timedelta(days=config.draft_expiry_days),
+        expires_at=now + timedelta(days=MANUAL_VALID_DAYS if route == "form" else config.draft_expiry_days),
         skip_reason="" if checks["passed"] else "; ".join(checks["problems"]),
     )
     session.add(app)
@@ -147,14 +213,17 @@ def expire_drafts(session: Session, user_id: uuid.UUID, now: datetime | None = N
     now = now or datetime.now(UTC)
     rows = session.execute(
         select(Application).where(
-            Application.user_id == user_id, Application.status.in_(("awaiting_approval", "queued", "failed")),
+            Application.user_id == user_id,
+            Application.status.in_(("awaiting_approval", "queued", "failed", "manual_apply")),
             Application.sent_at.is_(None), Application.expires_at < now,
         )
     ).scalars().all()
     for app in rows:
         slots.release_place(session, app)
+        manual = app.status == "manual_apply"
         app.status = "skipped"
-        app.skip_reason = "not approved in time" if app.approved_at is None else "could not be sent before it expired"
+        app.skip_reason = ("not applied to on the employer's site in time" if manual else
+                           "not approved in time" if app.approved_at is None else "could not be sent before it expired")
         audit.record(session, user_id=user_id, actor="system", tool="expire_draft", entity_id=app.id, reason=app.skip_reason)
     session.flush()
     return len(rows)
@@ -232,6 +301,9 @@ def send(session: Session, app: Application, now: datetime | None = None, *, run
     except MailAuthError:
         app.status = "queued"
         account.status = "error"
+        if campaign.state != "paused":
+            # Remembered so reconnecting Gmail restores the search exactly as it was (see resume_after_reconnect).
+            get_redis().set(f"paused_by_mail:{campaign.id}", campaign.state)
         campaign.state = "paused"
         slots.release_place(session, app)
         notify(session, user.id, "reconnect_mail", "Reconnect your Gmail account",

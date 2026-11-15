@@ -206,7 +206,8 @@ def test_scheduler_tick_runs_discovery_prepare_and_dispatch(client, llm):
     sent = first["sent"] + again["sent"]
     for i in range(2, 12):
         sent += scheduler.tick_user(w.user_id, NOW.replace(minute=5 * i), mail_check=always_ok)["sent"]
-    assert sent == 2 and len(w.mail.sent) == 2
+    applications = [m for _, m, _ in w.mail.sent if not m.subject.startswith("[Job Apply Agent]")]
+    assert sent == 2 and len(applications) == 2      # plus a notice to the user about jobs to apply to on site
     night = scheduler.tick_user(w.user_id, datetime(2026, 11, 10, 22, 0, tzinfo=UTC), mail_check=always_ok)
     assert night["prepare"] == 0 and night["sent"] == 0               # outside the window nothing is drafted or sent
 

@@ -296,4 +296,6 @@ def test_expired_form_draft_is_skipped(client, llm):
 
     w = form_app(client, llm)
     with w.session() as s:
-        assert app_service.expire_drafts(s, w.user_id, NOW + timedelta(days=30)) == 0    # manual-apply items do not expire
+        # Apply-on-site items stay for two weeks, then leave the list instead of piling up forever.
+        assert app_service.expire_drafts(s, w.user_id, NOW + timedelta(days=7)) == 0
+        assert app_service.expire_drafts(s, w.user_id, NOW + timedelta(days=30)) == 1

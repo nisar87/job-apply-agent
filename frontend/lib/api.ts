@@ -21,6 +21,20 @@ export function setToken(token: string | null) {
   }
 }
 
+/** The sign-in page, remembering where the user was going (for example the Drafts link in a notice email). */
+export function loginPath(): string {
+  if (typeof window === "undefined") return "/login";
+  const here = window.location.pathname + window.location.search;
+  return here === "/" || here.startsWith("/login") ? "/login" : `/login?next=${encodeURIComponent(here)}`;
+}
+
+/** Where to go after signing in: the remembered page if it is one of ours, otherwise the given default. */
+export function afterLogin(fallback: string): string {
+  if (typeof window === "undefined") return fallback;
+  const next = new URLSearchParams(window.location.search).get("next") || "";
+  return next.startsWith("/") && !next.startsWith("//") ? next : fallback;
+}
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -41,7 +55,7 @@ export async function api<T = unknown>(path: string, options: RequestInit & { js
   const res = await fetch(`${BASE}${path}`, { ...options, headers, body });
   if (res.status === 401 && typeof window !== "undefined" && !path.startsWith("/api/auth/")) {
     setToken(null);
-    window.location.replace("/login");
+    window.location.replace(loginPath());
   }
   if (!res.ok) {
     let message = `Request failed (${res.status})`;

@@ -63,6 +63,12 @@ def _app_out(session: Session, app: Application) -> ApplicationOut:
         out.cv_label = cv.label if cv else ""
     campaign = session.get(Campaign, app.campaign_id)
     out.campaign_name = campaign.name if campaign else ""
+    match = session.get(Match, app.match_id) if app.match_id else None
+    if match is not None:
+        rubric = match.rubric or {}
+        out.match_summary = str(rubric.get("summary") or "")[:600]
+        out.match_strengths = [str(r.get("requirement")) for r in rubric.get("requirements", [])
+                               if r.get("status") == "met" and r.get("requirement")][:5]
     return out
 
 
@@ -377,6 +383,7 @@ def _store_account(session: Session, user_id: uuid.UUID, address: str, provider:
     except Exception:  # noqa: BLE001 - the safety poll covers a failed watch
         pass
     audit.record(session, user_id=user_id, actor="user", tool="connect_mail", input={"address": address})
+    app_service.resume_after_reconnect(session, user_id)
     return account
 
 
@@ -405,6 +412,29 @@ def disconnect_mail(account_id: uuid.UUID, user_id: uuid.UUID = Depends(current_
             pass
     session.delete(account)
     audit.record(session, user_id=user_id, actor="user", tool="disconnect_mail", input={"address": account.address})
+
+
+# ---- Jobs to apply to on the employer's site ----
+
+@router.post("/applications/{app_id}/applied", response_model=ApplicationOut)
+def applied_by_hand(app_id: uuid.UUID, session: Session = Depends(db, scope="function")):
+    """The user applied on the employer's site; from now on it counts as sent."""
+    app = _own(session, Application, app_id)
+    try:
+        app_service.mark_applied_by_hand(session, app)
+    except app_service.ApplicationError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return _app_out(session, app)
+
+
+@router.post("/applications/{app_id}/skip", response_model=ApplicationOut)
+def skip_on_site(app_id: uuid.UUID, session: Session = Depends(db, scope="function")):
+    app = _own(session, Application, app_id)
+    try:
+        app_service.skip_manual(session, app, "you passed on it")
+    except app_service.ApplicationError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return _app_out(session, app)
 
 
 # ---- Web application forms (phase 3) ----

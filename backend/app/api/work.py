@@ -1,6 +1,7 @@
 """Applications, drafts, skipped postings, dashboard, notifications, mail and manual runs."""
 
 import logging
+import re
 import threading
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -387,6 +388,38 @@ def _store_account(session: Session, user_id: uuid.UUID, address: str, provider:
     audit.record(session, user_id=user_id, actor="user", tool="connect_mail", input={"address": address})
     app_service.resume_after_reconnect(session, user_id)
     return account
+
+
+class AppPasswordIn(BaseModel):
+    address: EmailStr
+    app_password: str = Field(max_length=64)
+
+
+@router.post("/mail/app-password")
+def connect_with_app_password(body: AppPasswordIn, user_id: uuid.UUID = Depends(current_user_id)):
+    """Connect a Gmail account with an app password: checked by signing in to Gmail once, then stored encrypted."""
+    address = body.address.lower()
+    password = mail_connector.normalize_app_password(body.app_password)
+    if not re.fullmatch(r"[a-z]{16}", password):
+        raise HTTPException(400, "An app password is 16 letters, like abcd efgh ijkl mnop. Copy it from the Google page.")
+    key = f"rl:app-password:{user_id}"
+    r = get_redis()
+    if r.incr(key) == 1:
+        r.expire(key, 3600)
+    if int(r.get(key) or 0) > 10:
+        raise HTTPException(429, "Too many tries. Wait an hour and try again.")
+    if get_settings().mail_provider != "fake":
+        try:
+            mail_connector.check_app_password(address, password)
+        except mail_connector.MailAuthError as exc:
+            raise HTTPException(400, "Google did not accept this. Check the address, and that you copied the app "
+                                     "password from the same Google account (not your normal password).") from exc
+        except OSError as exc:
+            raise HTTPException(503, "Could not reach Gmail just now. Try again in a minute.") from exc
+    with user_session(user_id) as session:
+        account = _store_account(session, user_id, address, "gmail_app", password, None)
+        account.scopes = []
+        return {"id": account.id, "address": account.address}
 
 
 class FakeConnectIn(BaseModel):

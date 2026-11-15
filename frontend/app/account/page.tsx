@@ -2,18 +2,17 @@
 
 import { useState } from "react";
 import ChangePassword from "@/components/ChangePassword";
+import JobGmail from "@/components/JobGmail";
 import ModelKey from "@/components/ModelKey";
 import Shell from "@/components/Shell";
 import { ErrorNote, errorText, useLoad } from "@/components/ui";
 import { api } from "@/lib/api";
 
 type Me = { email: string; name: string; timezone: string; escalation_email: string | null; style_guide: string; sample_emails: string[] };
-type Account = { id: string; address: string; provider: string; status: string };
 type Block = { id: string; type: string; value: string; reason: string; removable: boolean };
 
 export default function AccountPage() {
   const me = useLoad<Me>("/api/auth/me");
-  const mail = useLoad<Account[]>("/api/mail/account");
   const blocks = useLoad<Block[]>("/api/blocks");
   const [edits, setEdits] = useState<Partial<Me>>({});
   const [error, setError] = useState("");
@@ -35,16 +34,6 @@ export default function AccountPage() {
     }
   }
 
-  async function connectGmail() {
-    setError("");
-    try {
-      const { url } = await api<{ url: string }>("/api/mail/google/start");
-      window.location.assign(url);
-    } catch (e) {
-      setError(errorText(e));
-    }
-  }
-
   async function wrap(fn: () => Promise<unknown>, after: () => void) {
     setError("");
     try {
@@ -58,17 +47,7 @@ export default function AccountPage() {
   return (
     <Shell title="Account">
       <ErrorNote message={error || me.error} />
-      <h2 className="text-xl">Gmail</h2>
-      <p className="mt-1 max-w-prose text-sm text-slate">Applications are sent from your own account. The agent reads only the conversations it started and replies from employers you applied to.</p>
-      <ul className="mt-3 space-y-2 text-sm">
-        {(mail.data || []).map((a) => (
-          <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 border border-rule bg-sheet p-3">
-            <span>{a.address} <span className={`postmark ml-2 ${a.status === "connected" ? "text-sent" : "text-problem"}`}>{a.status === "connected" ? "Connected" : "Needs reconnecting"}</span></span>
-            <button className="btn btn-quiet" onClick={() => wrap(() => api(`/api/mail/account/${a.id}`, { method: "DELETE" }), mail.reload)}>Disconnect</button>
-          </li>
-        ))}
-      </ul>
-      <button className="btn mt-3" onClick={connectGmail}>{mail.data && mail.data.length ? "Reconnect Gmail" : "Connect Gmail"}</button>
+      <JobGmail />
 
       <ModelKey />
 

@@ -11,10 +11,20 @@ A hidden copy of the app for testing with real services before any public launch
 
 ## How it stays private
 
-- Sign-up is invite-only (`SIGNUP_ALLOWLIST`, currently the job mailbox only); everyone else gets 403.
+- Sign-up is invite-only: the admin invites addresses (or opens sign-up to anyone) under Admin → Who can sign up;
+  `SIGNUP_ALLOWLIST` addresses are always invited.
 - Search engines are kept out three ways: `X-Robots-Tag` on every response, a robots meta tag, and `robots.txt`.
 - `APP_ENV=staging`, so every application is redirected to `SANDBOX_RECIPIENT` (the Hotmail inbox). Nothing reaches an employer.
-- Gmail sign-in uses the project's own OAuth client in Testing mode; only listed test users can connect.
+- Users connect a Gmail used only for job hunting with a Google **app password** (Account → Your job Gmail): the app
+  sends through Gmail's SMTP and reads through its IMAP (`GmailAppPasswordProvider`). This needs no Google app review
+  and no test-user list. The older Google sign-in (OAuth, Testing mode, listed test users only) still works for
+  accounts already connected that way but is no longer offered.
+
+## Passwords
+
+Sign-up asks for the password twice. "Forgot your password?" emails a one-time link (an hour) through the mail
+server if one is set, otherwise from the user's connected job Gmail to themselves; when neither can reach them the
+admin makes a link under Admin → Users → Reset link. Account → Password changes it.
 
 ## Admin panel and AI keys
 

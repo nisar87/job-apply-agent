@@ -148,6 +148,36 @@ def set_user_limits(target: uuid.UUID, body: UserLimitsIn, me: uuid.UUID = Depen
         return _user_row(s, user, access.platform_settings(), {})
 
 
+class SignupIn(BaseModel):
+    mode: str | None = None
+    add: list[str] = Field(default_factory=list, max_length=200)
+    remove: list[str] = Field(default_factory=list, max_length=200)
+
+
+@router.get("/operator/signup")
+def get_signup(_: uuid.UUID = Depends(_operator)):
+    from app.services import signup
+
+    return signup.state()
+
+
+@router.put("/operator/signup")
+def put_signup(body: SignupIn, me: uuid.UUID = Depends(_operator)):
+    from app.services import signup
+
+    bad = [e for e in body.add if not re.fullmatch(r"[^@\s,]+@[^@\s,]+\.[^@\s,]+", e.strip())]
+    if bad:
+        raise HTTPException(422, f"Not an email address: {', '.join(bad[:3])}")
+    try:
+        result = signup.save(mode=body.mode, add=body.add, remove=body.remove)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    with system_session() as s:
+        audit.record(s, user_id=me, actor="operator", tool="signup_settings",
+                     input={"mode": body.mode, "add": body.add, "remove": body.remove})
+    return result
+
+
 @router.post("/operator/users/{target}/reset-link")
 def make_reset_link(target: uuid.UUID, me: uuid.UUID = Depends(_operator)):
     """For a user who cannot receive the reset email: a one-time link (valid an hour) to pass on to them."""

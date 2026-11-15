@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Shell from "@/components/Shell";
+import SignupSettings from "@/components/SignupSettings";
 import { ErrorNote, errorText, useLoad } from "@/components/ui";
 import { api } from "@/lib/api";
 
@@ -106,6 +107,8 @@ export default function Admin() {
           )}
         </section>
       )}
+
+      <SignupSettings />
 
       {users.data && (
         <section className="mb-8">

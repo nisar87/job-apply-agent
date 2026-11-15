@@ -26,6 +26,24 @@ def test_sign_up_is_invite_only_when_an_allowlist_is_set(client, monkeypatch):
     assert client.post("/api/auth/signup", json={"email": "anyone@example.com", **body}).status_code == 201
 
 
+def test_the_admin_invites_people_or_opens_sign_up(client, monkeypatch):
+    _env(monkeypatch, SIGNUP_ALLOWLIST="boss@example.com", ADMIN_EMAILS="boss@example.com")
+    body = {"password": "correct horse battery", "name": "X"}
+    admin = {"Authorization": "Bearer " + client.post("/api/auth/signup", json={"email": "boss@example.com", **body}).json()["access_token"]}
+    state = client.get("/api/operator/signup", headers=admin).json()
+    assert state == {"mode": "invite", "invites": [], "fixed_invites": ["boss@example.com"]}
+    assert client.put("/api/operator/signup", json={"add": ["not an email"]}, headers=admin).status_code == 422
+    client.put("/api/operator/signup", json={"add": ["Friend@Example.com"]}, headers=admin)
+    assert client.post("/api/auth/signup", json={"email": "friend@example.com", **body}).status_code == 201
+    assert client.post("/api/auth/signup", json={"email": "stranger@example.com", **body}).status_code == 403
+    state = client.put("/api/operator/signup", json={"mode": "open", "remove": ["friend@example.com"]}, headers=admin).json()
+    assert state["mode"] == "open" and state["invites"] == []
+    assert client.post("/api/auth/signup", json={"email": "stranger@example.com", **body}).status_code == 201
+    friend = {"Authorization": "Bearer " + client.post("/api/auth/login", json={"email": "friend@example.com", **body}).json()["access_token"]}
+    assert client.get("/api/operator/signup", headers=friend).status_code == 404
+    _env(monkeypatch, SIGNUP_ALLOWLIST="", ADMIN_EMAILS="")
+
+
 def test_hidden_deployment_tells_search_engines_to_stay_out(client, monkeypatch):
     assert "X-Robots-Tag" not in client.get("/api/health").headers
     _env(monkeypatch, HIDE_FROM_SEARCH="true")

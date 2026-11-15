@@ -92,10 +92,6 @@ class Settings(BaseSettings):
         admins = {e.strip().lower() for e in self.admin_emails.split(",") if e.strip()}
         return email.strip().lower() in admins
 
-    def may_sign_up(self, email: str) -> bool:
-        allowed = {e.strip().lower() for e in self.signup_allowlist.split(",") if e.strip()}
-        return not allowed or email.strip().lower() in allowed
-
 
 @lru_cache
 def get_settings() -> Settings:

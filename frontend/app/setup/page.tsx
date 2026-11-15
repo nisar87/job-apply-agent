@@ -17,7 +17,7 @@ type Reply = {
 
 const MISSING: Record<string, { text: string; href: string }> = {
   cv: { text: "Upload a CV", href: "/cvs" },
-  mail: { text: "Connect Gmail", href: "/account" },
+  mail: { text: "Connect your job Gmail", href: "/account" },
   escalation_email: { text: "Add an address for urgent replies", href: "/account" },
   fact_sheet: { text: "Fill in the fact sheet", href: "/cvs" },
 };

@@ -25,6 +25,7 @@ from app.security import (
     verify_password,
 )
 from app.services import account
+from app.services import signup as signup_rules
 from app.tasks.locks import get_redis
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -76,8 +77,8 @@ class UserPatch(BaseModel):
 @router.post("/signup", response_model=TokenOut, status_code=201)
 def signup(body: SignupIn):
     email = body.email.lower()
-    if not get_settings().may_sign_up(email):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Sign-up is by invitation only")
+    if not signup_rules.may_sign_up(email):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Sign-up is by invitation only. Ask the person who runs this service to invite you.")
     with system_session() as session:
         if session.execute(select(User).where(User.email == email)).scalar_one_or_none():
             raise HTTPException(status.HTTP_409_CONFLICT, "An account with this email already exists")

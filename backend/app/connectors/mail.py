@@ -1,15 +1,23 @@
 """Mail behind one interface (master document, section 6).
 
 `GmailProvider` talks to the Gmail REST API with the two scopes `gmail.send` and
-`gmail.readonly`. `FakeMailProvider` is an in-memory mailbox for tests and dry runs.
+`gmail.readonly`. `GmailAppPasswordProvider` uses Gmail's IMAP and SMTP servers with an app password, which
+needs no Google app approval. `FakeMailProvider` is an in-memory mailbox for tests and dry runs.
 """
 
 import base64
+import email
+import imaplib
+import re
+import smtplib
+import time
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from email import policy as email_policy
 from email.message import EmailMessage
-from email.utils import formataddr, make_msgid, parseaddr
+from email.utils import formataddr, make_msgid, parseaddr, parsedate_to_datetime
 from typing import Protocol
 
 import httpx
@@ -217,6 +225,225 @@ class GmailProvider:
         return expiry, str(data.get("historyId"))
 
 
+IMAP_HOST = "imap.gmail.com"
+SMTP_HOST = "smtp.gmail.com"
+_FETCH_META = re.compile(rb"X-GM-MSGID (\d+)|X-GM-THRID (\d+)|UID (\d+)")
+_LIST_LINE = re.compile(r'\((?P<flags>[^)]*)\) (?:"[^"]*"|NIL) (?P<name>.+)$')
+
+
+def normalize_app_password(value: str) -> str:
+    """Google shows app passwords as four groups of four letters; spaces are optional."""
+    return re.sub(r"\s+", "", value or "").lower()
+
+
+def _hex(dec: bytes | str) -> str:
+    return format(int(dec), "x")
+
+
+def _imap_quote(value: str) -> str:
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _parse_message(raw: bytes, message_id: str, thread_id: str) -> MailMessage:
+    msg = email.message_from_bytes(raw, policy=email_policy.default)
+    sender = parseaddr(str(msg.get("From", "")))[1].lower()
+    subject = str(msg.get("Subject", ""))
+    part = msg.get_body(preferencelist=("plain", "html"))
+    body = ""
+    if part is not None:
+        body = part.get_content()
+        if part.get_content_type() == "text/html":
+            from app.connectors.fetcher import html_to_text
+
+            body = html_to_text(body)
+    try:
+        received = parsedate_to_datetime(str(msg["Date"])).astimezone(UTC)
+    except (TypeError, ValueError, IndexError):
+        received = datetime.now(UTC)
+    is_bounce = sender.startswith(("mailer-daemon@", "postmaster@")) or "delivery status notification" in subject.lower()
+    return MailMessage(message_id=message_id, thread_id=thread_id, sender=sender,
+                       to=parseaddr(str(msg.get("To", "")))[1].lower(), subject=subject, body=body, received_at=received,
+                       rfc_message_id=str(msg.get("Message-ID", "")), is_bounce=is_bounce)
+
+
+def check_app_password(address: str, password: str) -> None:
+    """Sign in to the mailbox once; raises MailAuthError when Google refuses the address and app password."""
+    conn = imaplib.IMAP4_SSL(IMAP_HOST, timeout=30)
+    try:
+        conn.login(address, password)
+    except imaplib.IMAP4.error as exc:
+        raise MailAuthError("Google did not accept this address and app password") from exc
+    finally:
+        try:
+            conn.logout()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+class GmailAppPasswordProvider:
+    """Gmail through its own IMAP and SMTP servers, signed in with an app password (a 16-letter code from the
+    user's Google account, not their real password). It needs no Google app approval and no test-user list.
+    Message and thread ids are Gmail's own (X-GM-MSGID / X-GM-THRID, in hex like the Gmail API), so the rest
+    of the agent treats both kinds of account the same. Read position: "<uidvalidity>:<next uid>"."""
+
+    def _password(self, account: MailAccount) -> str:
+        return decrypt_secret(account.encrypted_refresh_token)
+
+    @contextmanager
+    def _imap(self, account: MailAccount):
+        conn = imaplib.IMAP4_SSL(IMAP_HOST, timeout=30)
+        try:
+            try:
+                conn.login(account.address, self._password(account))
+            except imaplib.IMAP4.error as exc:
+                raise MailAuthError("Gmail no longer accepts the app password") from exc
+            conn.select(self._all_mail(conn), readonly=True)
+            yield conn
+        finally:
+            try:
+                conn.logout()
+            except Exception:  # noqa: BLE001
+                pass
+
+    @staticmethod
+    def _all_mail(conn) -> str:
+        """The "All Mail" folder, found by its role because its name depends on the account's language."""
+        _, lines = conn.list()
+        for line in lines or []:
+            text = line.decode("utf-8", "replace") if isinstance(line, bytes) else str(line)
+            m = _LIST_LINE.match(text)
+            if m and "\\All" in m.group("flags"):
+                return m.group("name")
+        return '"[Gmail]/All Mail"'
+
+    @staticmethod
+    def _search(conn, *criteria: str) -> list[bytes]:
+        typ, data = conn.uid("SEARCH", *criteria)
+        return data[0].split() if typ == "OK" and data and data[0] else []
+
+    @staticmethod
+    def _fetch_full(conn, uids: list[bytes]) -> list[MailMessage]:
+        if not uids:
+            return []
+        typ, data = conn.uid("FETCH", b",".join(uids).decode(), "(X-GM-MSGID X-GM-THRID BODY.PEEK[])")
+        out = []
+        for item in data or []:
+            if not isinstance(item, tuple):
+                continue
+            meta = {"msgid": None, "thrid": None, "uid": None}
+            for msgid, thrid, uid in _FETCH_META.findall(item[0]):
+                meta["msgid"] = msgid or meta["msgid"]
+                meta["thrid"] = thrid or meta["thrid"]
+                meta["uid"] = uid or meta["uid"]
+            if meta["msgid"]:
+                out.append(_parse_message(item[1], _hex(meta["msgid"]), _hex(meta["thrid"] or meta["msgid"])))
+        return sorted(out, key=lambda m: m.received_at)
+
+    def send(self, account: MailAccount, mail: OutgoingMail) -> SentMail:
+        mime = build_mime(account.address, mail)
+        try:
+            with smtplib.SMTP_SSL(SMTP_HOST, 465, timeout=60) as smtp:
+                smtp.login(account.address, self._password(account))
+                smtp.send_message(mime)
+        except smtplib.SMTPAuthenticationError as exc:
+            raise MailAuthError("Gmail no longer accepts the app password") from exc
+        rfc = mime["Message-ID"]
+        # Gmail files the sent copy within a moment; its ids keep replies in the same conversation.
+        for wait in (1, 2, 3, 4):
+            time.sleep(wait)
+            try:
+                with self._imap(account) as conn:
+                    found = self._fetch_full(conn, self._search(conn, "HEADER", "Message-ID", _imap_quote(rfc)))
+                if found:
+                    return SentMail(message_id=found[0].message_id, thread_id=found[0].thread_id, rfc_message_id=rfc)
+            except MailAuthError:
+                raise
+            except Exception:  # noqa: BLE001 - the mail is out; only the lookup failed
+                continue
+        return SentMail(message_id=rfc.strip("<>"), thread_id=mail.thread_id or "m:" + rfc.strip("<>"), rfc_message_id=rfc)
+
+    def get_thread(self, account: MailAccount, thread_id: str) -> list[MailMessage]:
+        if thread_id.startswith("m:"):
+            return []
+        with self._imap(account) as conn:
+            return self._fetch_full(conn, self._search(conn, "X-GM-THRID", str(int(thread_id, 16))))
+
+    def get_message(self, account: MailAccount, message_id: str) -> MailMessage:
+        with self._imap(account) as conn:
+            found = self._fetch_full(conn, self._search(conn, "X-GM-MSGID", str(int(message_id, 16))))
+        if not found:
+            raise KeyError(message_id)
+        return found[0]
+
+    def list_new(self, account: MailAccount) -> tuple[list[MailMessage], str | None]:
+        with self._imap(account) as conn:
+            _, status = conn.status(self._all_mail(conn), "(UIDVALIDITY UIDNEXT)")
+            text = status[0].decode() if status and status[0] else ""
+            validity = (re.search(r"UIDVALIDITY (\d+)", text) or [None, "0"])[1]
+            uidnext = int((re.search(r"UIDNEXT (\d+)", text) or [None, "1"])[1])
+            position = f"{validity}:{uidnext}"
+            saved_validity, _, saved_next = (account.last_history_id or "").partition(":")
+            if not saved_next or saved_validity != validity:     # first run, or Gmail renumbered the folder
+                return [], position
+            start = int(saved_next)
+            if start >= uidnext:
+                return [], position
+            typ, data = conn.uid("FETCH", f"{start}:*", "(X-GM-MSGID X-GM-THRID)")
+        refs = []
+        for item in data or []:
+            line = item[0] if isinstance(item, tuple) else item
+            if not isinstance(line, bytes):
+                continue
+            meta = {"msgid": None, "thrid": None, "uid": None}
+            for msgid, thrid, uid in _FETCH_META.findall(line):
+                meta["msgid"] = msgid or meta["msgid"]
+                meta["thrid"] = thrid or meta["thrid"]
+                meta["uid"] = uid or meta["uid"]
+            if meta["msgid"] and meta["uid"] and int(meta["uid"]) >= start:
+                refs.append(MailMessage(message_id=_hex(meta["msgid"]), thread_id=_hex(meta["thrid"] or meta["msgid"]),
+                                        sender="", to="", subject="", body="", received_at=datetime.now(UTC)))
+        return refs, position
+
+    def search_from(self, account: MailAccount, senders: list[str], since: datetime) -> list[MailMessage]:
+        if not senders:
+            return []
+        query = "(" + " OR ".join(f"from:{s}" for s in senders[:40]) + f") after:{int(since.timestamp())}"
+        with self._imap(account) as conn:
+            return self._fetch_full(conn, self._search(conn, "X-GM-RAW", _imap_quote(query))[-50:])
+
+    def watch(self, account: MailAccount) -> tuple[datetime | None, str | None]:
+        return None, None     # no push for IMAP; the regular inbox check reads new mail
+
+
+class RoutingMailProvider:
+    """Sends each call to the provider matching the account: Google sign-in ("gmail") or app password ("gmail_app")."""
+
+    def __init__(self):
+        self.oauth = GmailProvider()
+        self.app_password = GmailAppPasswordProvider()
+
+    def _for(self, account: MailAccount):
+        return self.app_password if account.provider == "gmail_app" else self.oauth
+
+    def send(self, account, mail):
+        return self._for(account).send(account, mail)
+
+    def get_thread(self, account, thread_id):
+        return self._for(account).get_thread(account, thread_id)
+
+    def get_message(self, account, message_id):
+        return self._for(account).get_message(account, message_id)
+
+    def list_new(self, account):
+        return self._for(account).list_new(account)
+
+    def search_from(self, account, senders, since):
+        return self._for(account).search_from(account, senders, since)
+
+    def watch(self, account):
+        return self._for(account).watch(account)
+
+
 class FakeMailProvider:
     """In-memory mailbox. Tests call `deliver` to simulate an employer's reply."""
 
@@ -293,5 +520,5 @@ def set_mail_provider(provider: MailProvider | None) -> None:
 def get_mail_provider() -> MailProvider:
     global _provider
     if _provider is None:
-        _provider = FakeMailProvider() if get_settings().mail_provider == "fake" else GmailProvider()
+        _provider = FakeMailProvider() if get_settings().mail_provider == "fake" else RoutingMailProvider()
     return _provider

@@ -48,7 +48,7 @@ jobs:
           gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
           TAG="${GITHUB_SHA::12}"
           docker build -t "$REGISTRY/api:$TAG" backend
-          docker build -t "$REGISTRY/web:$TAG" --build-arg NEXT_PUBLIC_API_URL="https://$DOMAIN" \
+          docker build -t "$REGISTRY/web:$TAG" --build-arg NEXT_PUBLIC_API_URL=same-origin \
             --build-arg NEXT_PUBLIC_HIDE_FROM_SEARCH=1 frontend
           docker push "$REGISTRY/api:$TAG"
           docker push "$REGISTRY/web:$TAG"

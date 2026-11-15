@@ -1,6 +1,10 @@
 // Thin client for the backend API. The login token is kept in localStorage.
 
-const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+// "same-origin": the site and the API share one address (Firebase Hosting sends /api to the API), so the same
+// build works on every domain the site is served from. Otherwise the API's full address, or local development.
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const BASE = API_URL === "same-origin" ? "" : API_URL;
+export const API_BASE = BASE;
 const TOKEN_KEY = "jaa_token";
 
 export function getToken(): string | null {

@@ -5,7 +5,7 @@ import { useState } from "react";
 import FormReview from "@/components/FormReview";
 import Shell from "@/components/Shell";
 import { ErrorNote, Postmark, errorText, useLoad } from "@/components/ui";
-import { api, fmtDate } from "@/lib/api";
+import { API_BASE, api, fmtDate } from "@/lib/api";
 import type { Application } from "@/lib/types";
 
 type Detail = {
@@ -135,7 +135,7 @@ export default function ApplicationPage() {
                 {data.cv_version_id && (
                   <p className="mt-3"><a className="underline" href="#" onClick={async (e) => {
                     e.preventDefault();
-                    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/cv-versions/${data.cv_version_id}/file`, { headers: { Authorization: `Bearer ${localStorage.getItem("jaa_token")}` } });
+                    const res = await fetch(`${API_BASE}/api/cv-versions/${data.cv_version_id}/file`, { headers: { Authorization: `Bearer ${localStorage.getItem("jaa_token")}` } });
                     const url = URL.createObjectURL(await res.blob());
                     const link = document.createElement("a");
                     link.href = url; link.download = "cv"; link.click();

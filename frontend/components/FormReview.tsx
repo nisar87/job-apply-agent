@@ -2,14 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { ErrorNote, errorText, useLoad } from "@/components/ui";
-import { api, getToken } from "@/lib/api";
+import { API_BASE, api, getToken } from "@/lib/api";
 
 type Review = {
   hiring_system: string | null; consents: string[]; has_screenshot: boolean; submitted_at: string | null;
   answers: { label: string; value: string | boolean }[]; files: { label: string; file: string }[];
 };
 
-const BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const BASE = API_BASE;
 
 export default function FormReview({ id, status, onChange }: { id: string; status: string; onChange: () => void }) {
   const review = useLoad<Review>(status === "form_ready" || status === "sent" ? `/api/applications/${id}/form` : null);

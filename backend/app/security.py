@@ -39,9 +39,42 @@ def create_access_token(user_id: uuid.UUID) -> str:
 def decode_access_token(token: str) -> uuid.UUID | None:
     try:
         payload = jwt.decode(token, get_settings().secret_key, algorithms=["HS256"])
+        if payload.get("purpose"):  # a reset link is not a sign-in
+            return None
         return uuid.UUID(payload["sub"])
     except Exception:
         return None
+
+
+RESET_MINUTES = 60
+
+
+def _password_fingerprint(password_hash: str) -> str:
+    return hashlib.sha256(password_hash.encode()).hexdigest()[:24]
+
+
+def create_reset_token(user_id: uuid.UUID, password_hash: str) -> str:
+    """A password-reset link token. It carries a fingerprint of the current password hash, so it stops
+    working as soon as the password changes: each link can be used once."""
+    now = datetime.now(UTC)
+    payload = {"sub": str(user_id), "purpose": "reset", "pw": _password_fingerprint(password_hash),
+               "iat": now, "exp": now + timedelta(minutes=RESET_MINUTES)}
+    return jwt.encode(payload, get_settings().secret_key, algorithm="HS256")
+
+
+def read_reset_token(token: str) -> tuple[uuid.UUID, str] | None:
+    """(user id, password fingerprint) from a valid, unexpired reset token; None otherwise."""
+    try:
+        payload = jwt.decode(token, get_settings().secret_key, algorithms=["HS256"])
+        if payload.get("purpose") != "reset":
+            return None
+        return uuid.UUID(payload["sub"]), str(payload["pw"])
+    except Exception:
+        return None
+
+
+def reset_token_matches(fingerprint: str, password_hash: str) -> bool:
+    return fingerprint == _password_fingerprint(password_hash)
 
 
 def _fernet() -> Fernet:

@@ -148,6 +148,19 @@ def set_user_limits(target: uuid.UUID, body: UserLimitsIn, me: uuid.UUID = Depen
         return _user_row(s, user, access.platform_settings(), {})
 
 
+@router.post("/operator/users/{target}/reset-link")
+def make_reset_link(target: uuid.UUID, me: uuid.UUID = Depends(_operator)):
+    """For a user who cannot receive the reset email: a one-time link (valid an hour) to pass on to them."""
+    from app.services.account import reset_link
+
+    with system_session() as s:
+        user = s.get(User, target)
+        if not user or user.status == "deleted":
+            raise HTTPException(404, "Not found")
+        audit.record(s, user_id=user.id, actor="operator", tool="password_reset_link", input={"by": str(me)})
+        return {"link": reset_link(user)}
+
+
 def _user_row(s: Session, u: User, settings: dict, spend: dict) -> dict:
     return {
         "id": u.id, "email": u.email, "status": u.status,

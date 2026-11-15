@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import ChangePassword from "@/components/ChangePassword";
 import ModelKey from "@/components/ModelKey";
 import Shell from "@/components/Shell";
 import { ErrorNote, errorText, useLoad } from "@/components/ui";
@@ -86,6 +87,8 @@ export default function AccountPage() {
         </div>
       )}
       <div className="mt-4 flex items-center gap-3"><button className="btn" onClick={saveMe}>Save</button>{note && <span className="text-sm text-sent">{note}</span>}</div>
+
+      <ChangePassword />
 
       <h2 className="mt-10 text-xl">Never contact</h2>
       <ul className="mt-3 space-y-1 text-sm">

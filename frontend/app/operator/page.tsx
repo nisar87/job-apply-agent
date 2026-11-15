@@ -39,6 +39,7 @@ export default function Admin() {
   const forms = useLoad<FormLog>("/api/operator/form-attempts?days=14");
   const [error, setError] = useState("");
   const [cap, setCap] = useState("");
+  const [reset, setReset] = useState<{ email: string; link: string } | null>(null);
 
   async function act(fn: () => Promise<unknown>, ...reloads: (() => void)[]) {
     setError("");
@@ -138,14 +139,27 @@ export default function Admin() {
                         onBlur={(e) => { const v = Number(e.target.value); if (v !== u.daily_send_limit) patchUser(u.id, { daily_send_limit: v }); }} /></td>
                       <td>{o?.sent_24h ?? 0}</td>
                       <td>{o?.failed_runs_24h ?? 0}</td>
-                      <td><button className="btn btn-quiet" onClick={() => act(() => api(`/api/operator/users/${u.id}/status?status=${u.status === "active" ? "paused" : "active"}`, { method: "POST" }), users.reload, overview.reload)}>
-                        {u.status === "active" ? "Pause" : "Resume"}</button></td>
+                      <td className="whitespace-nowrap"><button className="btn btn-quiet" onClick={() => act(() => api(`/api/operator/users/${u.id}/status?status=${u.status === "active" ? "paused" : "active"}`, { method: "POST" }), users.reload, overview.reload)}>
+                        {u.status === "active" ? "Pause" : "Resume"}</button>
+                        <button className="btn btn-quiet ml-1" title="A one-time link to choose a new password, valid for an hour"
+                          onClick={() => act(async () => setReset({ email: u.email, ...(await api<{ link: string }>(`/api/operator/users/${u.id}/reset-link`, { method: "POST" })) }))}>
+                          Reset link</button></td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
           </div>
+          {reset && (
+            <div className="mt-3 border border-rule bg-sheet p-3 text-sm">
+              <p>Password reset link for <strong>{reset.email}</strong>. Send it to them privately; it works once and expires in an hour.</p>
+              <p className="mt-2 flex flex-wrap items-center gap-2">
+                <input className="field min-w-0 flex-1 font-mono text-xs" readOnly value={reset.link} aria-label="Reset link" onFocus={(e) => e.target.select()} />
+                <button className="btn btn-quiet" onClick={() => navigator.clipboard?.writeText(reset.link)}>Copy</button>
+                <button className="btn btn-quiet" onClick={() => setReset(null)}>Close</button>
+              </p>
+            </div>
+          )}
         </section>
       )}
 

@@ -17,7 +17,14 @@ from app.api.deps import current_user_id, db
 from app.config import get_settings
 from app.db import system_session
 from app.models import FactSheet, User
-from app.security import create_access_token, hash_password, verify_password
+from app.security import (
+    create_access_token,
+    hash_password,
+    read_reset_token,
+    reset_token_matches,
+    verify_password,
+)
+from app.services import account
 from app.tasks.locks import get_redis
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -97,6 +104,67 @@ def login(body: LoginIn):
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Wrong email or password")
         r.delete(key)
         return TokenOut(access_token=create_access_token(user.id))
+
+
+class ForgotIn(BaseModel):
+    email: EmailStr
+
+
+class ResetIn(BaseModel):
+    token: str = Field(max_length=2000)
+    password: str = Field(min_length=10, max_length=200)
+
+
+class PasswordIn(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=10, max_length=200)
+
+
+@router.post("/forgot")
+def forgot_password(body: ForgotIn):
+    """Email a reset link. The answer is the same whether or not the address has an account."""
+    email = body.email.lower()
+    key = f"rl:forgot:{email}"
+    r = get_redis()
+    count = r.incr(key)
+    if count == 1:
+        r.expire(key, 3600)
+    if count <= 3:
+        with system_session() as session:
+            user = session.execute(select(User).where(User.email == email)).scalar_one_or_none()
+            if user and user.status != "deleted":
+                sent = account.send_reset_link(session, user)
+                audit.record(session, user_id=user.id, actor="user", tool="password_reset_requested",
+                             result={"emailed": sent})
+    return {"ok": True}
+
+
+@router.post("/reset", response_model=TokenOut)
+def reset_password(body: ResetIn):
+    found = read_reset_token(body.token)
+    expired = HTTPException(status.HTTP_400_BAD_REQUEST, "This reset link has expired or was already used. Ask for a new one.")
+    if not found:
+        raise expired
+    user_id, fingerprint = found
+    with system_session() as session:
+        user = session.get(User, user_id)
+        if not user or user.status == "deleted" or not reset_token_matches(fingerprint, user.password_hash):
+            raise expired
+        user.password_hash = hash_password(body.password)
+        audit.record(session, user_id=user.id, actor="user", tool="password_reset")
+        get_redis().delete(f"rl:login:{user.email}")
+        return TokenOut(access_token=create_access_token(user.id))
+
+
+@router.post("/password")
+def change_password(body: PasswordIn, user_id: uuid.UUID = Depends(current_user_id)):
+    with system_session() as session:
+        user = session.get(User, user_id)
+        if not user or not verify_password(body.current_password, user.password_hash):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Your current password is not right")
+        user.password_hash = hash_password(body.new_password)
+        audit.record(session, user_id=user.id, actor="user", tool="password_changed")
+    return {"ok": True}
 
 
 @router.get("/me", response_model=UserOut)

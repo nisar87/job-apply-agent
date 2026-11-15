@@ -90,6 +90,29 @@ def _send_from_own_mailbox(session: Session, user: User, to: str, subject: str, 
     return True
 
 
+def reset_link(user: User) -> str:
+    from app.security import create_reset_token
+
+    return f"{get_settings().frontend_url.rstrip('/')}/reset?token={create_reset_token(user.id, user.password_hash)}"
+
+
+def send_reset_link(session: Session, user: User) -> bool:
+    """Email a password-reset link to the account's own address: through the product's mail server when
+    there is one, otherwise from the user's connected Gmail to themselves."""
+    name = (user.name or "").split(" ")[0] or "there"
+    subject = "Reset your password"
+    body = (f"Hi {name},\n\nSomeone (hopefully you) asked to reset the password for your Job Apply Agent account. "
+            f"Open this link to choose a new one:\n\n{reset_link(user)}\n\n"
+            "It works once and expires in an hour. If you didn't ask for this, ignore this email and your "
+            "password stays the same.")
+    try:
+        if get_notifier().send(user.email, subject, body):
+            return True
+    except Exception as exc:  # noqa: BLE001 - a mail server hiccup must not reveal anything to the caller
+        log.warning("reset email via SMTP failed: %s", type(exc).__name__)
+    return _send_from_own_mailbox(session, user, user.email, subject, body)
+
+
 def export_data(session: Session, user_id: uuid.UUID) -> dict:
     """Everything stored about the user, as plain data. Tokens are never included."""
 

@@ -78,7 +78,7 @@ def board_url(provider: str, slug: str) -> str:
 
 
 BOARD_URLS = {
-    "websearch": "https://www.google.com", "arbeitnow": "https://www.arbeitnow.com", "arbeitsagentur": "https://www.arbeitsagentur.de/jobsuche", "adzuna": "https://www.adzuna.com", "remotive": "https://remotive.com",
+    "pool": "/sources", "websearch": "https://www.google.com", "arbeitnow": "https://www.arbeitnow.com", "arbeitsagentur": "https://www.arbeitsagentur.de/jobsuche", "adzuna": "https://www.adzuna.com", "remotive": "https://remotive.com",
     "jobicy": "https://jobicy.com", "himalayas": "https://himalayas.app", "weworkremotely": "https://weworkremotely.com",
     "remoteok": "https://remoteok.com", "workingnomads": "https://www.workingnomads.com",
 }
@@ -96,14 +96,15 @@ def board(session: Session, provider: str) -> JobSite:
     return row
 
 
-def due_company_boards(session: Session, provider: str, now: datetime | None = None, limit: int = PER_DISCOVERY) -> list[JobSite]:
-    """Enabled company boards of one hiring system that have not been checked recently, oldest check first."""
+def due_company_boards(session: Session, provider: str | None, now: datetime | None = None, limit: int = PER_DISCOVERY) -> list[JobSite]:
+    """Enabled company boards of one hiring system (or of all, when provider is None) that have not been checked
+    recently, oldest check first."""
     now = now or datetime.now(UTC)
-    rows = session.execute(
-        select(JobSite).where(JobSite.provider == provider, JobSite.kind == "company", JobSite.enabled.is_(True),
+    q = select(JobSite).where(JobSite.kind == "company", JobSite.enabled.is_(True),
                               (JobSite.last_checked_at.is_(None)) | (JobSite.last_checked_at < now - CHECK_EVERY))
-        .order_by(JobSite.last_checked_at.asc().nulls_first()).limit(limit)
-    ).scalars().all()
+    if provider is not None:
+        q = q.where(JobSite.provider == provider)
+    rows = session.execute(q.order_by(JobSite.last_checked_at.asc().nulls_first()).limit(limit)).scalars().all()
     return list(rows)
 
 

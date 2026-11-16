@@ -113,6 +113,10 @@ def tick(now: datetime | None = None) -> dict:
     summary = {"users": 0, "sent": 0}
     if get_redis().get("global_pause"):
         return {**summary, "paused": True}
+    from app.services import harvest
+
+    # The job harvester runs every two hours in its own thread, so this tick is not held up (see harvest.py).
+    summary["harvest_started"] = harvest.start_if_due(now)
     for user_id in _active_users():
         result = tick_user(user_id, now, fetcher=Fetcher())
         summary["users"] += 1

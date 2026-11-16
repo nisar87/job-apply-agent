@@ -10,8 +10,10 @@ type Site = {
   last_error: string; learned_from: string;
 };
 
+type Pool = { jobs: number; new_last_day: number; last_harvest: { finished_at?: string; new?: number; boards_checked?: number; boards_learned?: number } | null };
+
 const BOARD_NAMES: Record<string, string> = {
-  websearch: "Google search (by the AI)", arbeitnow: "Arbeitnow", arbeitsagentur: "Bundesagentur für Arbeit", adzuna: "Adzuna", remotive: "Remotive", jobicy: "Jobicy", himalayas: "Himalayas",
+  pool: "Job pool (free harvester)", websearch: "Google search (by the AI)", arbeitnow: "Arbeitnow", arbeitsagentur: "Bundesagentur für Arbeit", adzuna: "Adzuna", remotive: "Remotive", jobicy: "Jobicy", himalayas: "Himalayas",
   weworkremotely: "We Work Remotely", remoteok: "Remote OK", workingnomads: "Working Nomads",
 };
 
@@ -24,6 +26,8 @@ function status(s: Site): { text: string; tone: string } {
 
 export default function Sources() {
   const { data, error } = useLoad<Site[]>("/api/job-sites");
+  const { data: pool } = useLoad<Pool>("/api/job-pool");
+  const harvest = pool?.last_harvest;
   const boards = (data || []).filter((s) => s.kind === "board");
   const companies = (data || []).filter((s) => s.kind === "company");
   return (
@@ -32,6 +36,14 @@ export default function Sources() {
         Every place the agent searches. Job boards are checked for each search; company career pages are learned
         automatically from the jobs it reads and checked twice a day. Jobs are always applied to on the original site.
       </p>
+      {pool && (
+        <p className="mt-2 max-w-prose text-sm text-slate">
+          Job pool: {pool.jobs} jobs collected from free boards, {pool.new_last_day} new in the last day.
+          {harvest?.finished_at
+            ? ` Last harvest ${fmtDate(harvest.finished_at)}: ${harvest.new ?? 0} new jobs, ${harvest.boards_checked ?? 0} company pages checked, ${harvest.boards_learned ?? 0} learned.`
+            : " No harvest has run yet."}
+        </p>
+      )}
       <ErrorNote message={error} />
       {!data && !error && <p className="mt-4 text-sm text-slate">Loading…</p>}
       <h2 className="mt-6 text-xl">Job boards ({boards.length})</h2>

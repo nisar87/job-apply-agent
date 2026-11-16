@@ -394,6 +394,35 @@ class JobSite(Base, TimestampMixin):
     __table_args__ = (UniqueConstraint("provider", "slug"),)
 
 
+class PoolJob(Base):
+    """A job collected by the harvester (app/services/harvest.py) from free public feeds, before any user's
+    search reads it. Shared by all users and holds no user content; searches take matching rows from here and
+    only then does the agent read them (and spend model calls) as postings. Rows not seen for 45 days are dropped."""
+
+    __tablename__ = "pool_jobs"
+    id: Mapped[uuid.UUID] = pk()
+    source: Mapped[str] = mapped_column(String(32))                  # the board it came from: remotive, lever, …
+    source_id: Mapped[str] = mapped_column(String(500))
+    url: Mapped[str] = mapped_column(Text, default="")
+    title: Mapped[str] = mapped_column(String(500), default="")
+    company: Mapped[str] = mapped_column(String(300), default="")
+    description: Mapped[str] = mapped_column(Text, default="")
+    is_snippet: Mapped[bool] = mapped_column(Boolean, default=False)  # only part of the text; read the page later
+    location: Mapped[str] = mapped_column(String(500), default="")
+    country: Mapped[str | None] = mapped_column(String(8), nullable=True, index=True)
+    posted_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    work_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    salary_min: Mapped[float | None] = mapped_column(Float, nullable=True)
+    salary_max: Mapped[float | None] = mapped_column(Float, nullable=True)
+    contract_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    hiring_regions: Mapped[list | None] = mapped_column(JsonType, nullable=True)
+    contact_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    dedupe_key: Mapped[str] = mapped_column(String(64), index=True)  # the same key postings use (company|title|place)
+    first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    __table_args__ = (UniqueConstraint("source", "source_id"),)
+
+
 class KVEntry(Base):
     """Short-lived keys (locks, rate limits, page cache, the global pause) when no Redis server is used.
     Holds no user content beyond what the same keys hold in Redis. See app/kv.py."""
@@ -411,4 +440,5 @@ USER_TABLES = [
     "usage_daily",
 ]
 # Shared tables: readable by the app role, no per-user rows.
-SHARED_TABLES = ["companies", "postings", "global_blocks", "posting_slots", "block_requests", "kv_store", "job_sites"]
+SHARED_TABLES = ["companies", "postings", "global_blocks", "posting_slots", "block_requests", "kv_store", "job_sites",
+                 "pool_jobs"]

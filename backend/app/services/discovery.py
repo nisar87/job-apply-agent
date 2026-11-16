@@ -19,13 +19,21 @@ log = logging.getLogger(__name__)
 MAX_NEW_PER_RUN = 60
 
 
-def _countries_for(source: str, countries: list[str]) -> list[str]:
-    """The countries one source is asked about. Adzuna searches one country per request, so it is asked
-    once for each chosen country it covers (and not at all for "anywhere"). Every other source searches
-    its whole board in one request; the country filter then keeps only postings in the chosen countries."""
+MAX_COUNTRIES = 5  # countries asked about one by one per search and run
+
+
+def _countries_for(source: str, countries: list[str], per_country: bool = False) -> list[str]:
+    """The countries one source is asked about. Sources that search one country per request (Adzuna, the web
+    search, the federal board: `per_country`) are asked once for each chosen country, up to five (Adzuna only
+    for the countries it covers, and not at all for "anywhere"). Whole boards and the job pool are asked once:
+    they are not limited to a country (the pool receives all chosen countries in `countries`), and the hard
+    filters then keep postings in any of the chosen countries."""
+    chosen = countries[:MAX_COUNTRIES]
     if source == "adzuna":
-        return [c for c in countries if c in ADZUNA_COUNTRIES]
-    return [countries[0] if countries else ""]
+        return [c for c in chosen if c in ADZUNA_COUNTRIES]
+    if per_country and chosen:
+        return chosen
+    return [chosen[0] if chosen else ""]
 
 
 def discover(session: Session, llm: LLMClient, campaign: Campaign, *, fetcher: Fetcher | None = None,
@@ -38,6 +46,14 @@ def discover(session: Session, llm: LLMClient, campaign: Campaign, *, fetcher: F
     from app.services.campaigns import CampaignConfig
 
     names = list(dict.fromkeys([*config.sources, *CampaignConfig().sources, *[n for n in sources if n == "demo"]]))
+    # The job pool goes first, so its already-collected jobs get the run's places before live searches do. While
+    # a recent harvest covers a board, the board is not asked again here (see harvest.covered_sources).
+    skip: set[str] = set()
+    if "pool" in sources:
+        from app.services import harvest
+
+        names = ["pool", *[n for n in names if n != "pool"]]
+        skip = harvest.covered_sources(config.keywords)
     def take(raws: list[RawPosting]) -> None:
         nonlocal found, created
         for raw in raws:
@@ -60,14 +76,16 @@ def discover(session: Session, llm: LLMClient, campaign: Campaign, *, fetcher: F
     checked = 0
     for name in names:
         source = sources.get(name)
-        if source is None:
+        if source is None or name in skip:
             continue
         query_base = dict(keywords=config.keywords, location=(config.locations or [""])[0],
                           max_days_old=config.max_posting_age_days, home_country=home,
                           remote_ok=bool(config.remote_outside_countries or not config.countries)
                           and (not config.work_modes or "remote" in config.work_modes),
-                          work_modes=list(config.work_modes))
+                          work_modes=list(config.work_modes), countries=list(config.countries))
         extra = {"llm": llm} if getattr(source, "needs_llm", False) else {}
+        if getattr(source, "needs_session", False):
+            extra["session"] = session
         if name in COMPANY_FEED_SOURCES:
             # One company's own careers board at a time, from the directory, the ones checked longest ago first.
             for site in sites.due_company_boards(session, name):
@@ -88,7 +106,7 @@ def discover(session: Session, llm: LLMClient, campaign: Campaign, *, fetcher: F
         if site is not None and not site.enabled:
             continue
         got, failed = 0, ""
-        for country in _countries_for(name, config.countries):
+        for country in _countries_for(name, config.countries, getattr(source, "per_country", False)):
             try:
                 raws: list[RawPosting] = source.search(SearchQuery(**query_base, country=country), **extra)
             except Exception as exc:  # noqa: BLE001 - one failing source must not stop the others
@@ -100,7 +118,8 @@ def discover(session: Session, llm: LLMClient, campaign: Campaign, *, fetcher: F
             take(raws)
         if site is not None:
             sites.record(site, ok=not failed or got > 0, jobs=got, matches=got, error=failed)
-    result = {"found": found, "new": created, "errors": errors[:10], "company_boards_checked": checked}
+    result = {"found": found, "new": created, "errors": errors[:10], "company_boards_checked": checked,
+              "left_to_pool": sorted(skip & set(names) & set(sources))}
     audit.record(session, user_id=campaign.user_id, actor="agent", tool="discover", run_id=run_id,
                  entity_id=campaign.id, result=result)
     return result

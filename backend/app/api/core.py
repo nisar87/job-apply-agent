@@ -106,6 +106,17 @@ def job_sites(user_id: uuid.UUID = Depends(current_user_id), session: Session = 
              "learned_from": r.learned_from} for r in rows]
 
 
+@router.get("/job-pool")
+def job_pool(user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
+    """Size of the shared job pool and how the last harvest went (counts only; no user data)."""
+    from app.services import harvest, pool
+
+    last = harvest.last_result() or {}
+    keep = ("started_at", "finished_at", "new", "boards_checked", "boards_learned", "boards_left", "expired",
+            "sources", "errors")
+    return {**pool.stats(session), "last_harvest": {k: last[k] for k in keep if k in last} or None}
+
+
 @router.get("/countries")
 def countries(user_id: uuid.UUID = Depends(current_user_id)):
     """Countries a search can be limited to, with the job sources that search each one."""

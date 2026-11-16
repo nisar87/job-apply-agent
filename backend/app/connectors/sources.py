@@ -6,6 +6,7 @@ Adding a country means enabling or adding sources here; the agent does not chang
 
 import re
 import xml.etree.ElementTree as ET
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from typing import Protocol
@@ -27,6 +28,18 @@ class SearchQuery:
     remote_ok: bool = False  # remote jobs from other countries are welcome
     home_country: str = ""  # where the candidate lives (ISO code), for remote jobs that hire only from some places
     work_modes: list[str] = field(default_factory=list)
+    countries: list[str] = field(default_factory=list)  # all of the search's countries (the job pool uses them all)
+
+
+@dataclass
+class HarvestQuery:
+    """What the job harvester (app/services/harvest.py) asks a board for: everything recent, not one search."""
+
+    terms: list[str] = field(default_factory=list)      # every active search's keywords together
+    countries: list[str] = field(default_factory=list)  # every active search's countries together
+    max_days_old: int = 14
+    is_known: Callable[[str, str], bool] = lambda source, source_id: False  # already in the pool
+    out_of_time: Callable[[], bool] = lambda: False                          # the run's time budget is spent
 
 
 @dataclass
@@ -104,6 +117,7 @@ class AdzunaSource:
     The postings are still checked against all the search's keywords here, and the agent reads each one in full."""
 
     name = "adzuna"
+    per_country = True
     BASE = "https://api.adzuna.com/v1/api/jobs"
     PER_PAGE = 50
     MAX_PAGES = 3
@@ -224,20 +238,37 @@ class ArbeitnowSource:
     def __init__(self, http: httpx.Client | None = None):
         self.http = http or httpx.Client(timeout=20)
 
+    URL = "https://www.arbeitnow.com/api/job-board-api"
+    HARVEST_PAGES = 5
+
+    def _posting(self, r: dict) -> RawPosting:
+        return RawPosting(
+            source=self.name, source_id=str(r.get("slug")), url=r.get("url", ""), title=r.get("title", ""),
+            company=r.get("company_name", ""), description=html_to_text(r.get("description", "")),
+            location=r.get("location", ""), posted_date=_date(r.get("created_at")),
+            work_mode="remote" if r.get("remote") else None, contract_type=", ".join(r.get("job_types", [])) or None,
+        )
+
     def search(self, query: SearchQuery) -> list[RawPosting]:
-        resp = self.http.get("https://www.arbeitnow.com/api/job-board-api")
+        resp = self.http.get(self.URL)
         resp.raise_for_status()
         out = []
         for r in resp.json().get("data", []):
-            text = html_to_text(r.get("description", ""))
-            if not matches_keywords(f"{r.get('title', '')} {text} {' '.join(r.get('tags', []))}", query.keywords):
-                continue
-            out.append(RawPosting(
-                source=self.name, source_id=str(r.get("slug")), url=r.get("url", ""), title=r.get("title", ""),
-                company=r.get("company_name", ""), description=text, location=r.get("location", ""),
-                posted_date=_date(r.get("created_at")), work_mode="remote" if r.get("remote") else None,
-                contract_type=", ".join(r.get("job_types", [])) or None,
-            ))
+            raw = self._posting(r)
+            if matches_keywords(f"{raw.title} {raw.description} {' '.join(r.get('tags', []))}", query.keywords):
+                out.append(raw)
+        return out
+
+    def harvest(self, query: HarvestQuery) -> list[RawPosting]:
+        """For the job pool: the newest pages of the whole board (newest first), until a page brings nothing
+        the pool does not have yet, five pages at most. Each page is fetched at most every two hours."""
+        out = []
+        for page in range(1, self.HARVEST_PAGES + 1):
+            rows = _cached_json(self.http, self.URL, 2 * 3600, page=page).get("data") or []
+            got = [self._posting(r) for r in rows]
+            out.extend(got)
+            if not got or all(query.is_known(self.name, p.source_id) for p in got) or query.out_of_time():
+                break
         return out
 
 
@@ -449,16 +480,16 @@ class HimalayasSource:
     def __init__(self, http: httpx.Client | None = None):
         self.http = http or httpx.Client(timeout=30, headers={"User-Agent": "JobApplyAgent/0.1"})
 
-    def search(self, query: SearchQuery) -> list[RawPosting]:
+    def _find(self, terms: list[str], keywords: list[str]) -> list[RawPosting]:
         seen, out = set(), []
-        for term in [k for k in query.keywords if k.strip()][:self.MAX_TERMS]:
+        for term in terms:
             data = _cached_json(self.http, "https://himalayas.app/jobs/api/search", 12 * 3600, q=term, page=1)
             for r in data.get("jobs", []):
                 guid = str(r.get("guid") or r.get("applicationLink"))
                 if guid in seen:
                     continue
                 text = html_to_text(r.get("description") or r.get("excerpt") or "")
-                if not matches_keywords(f"{r.get('title', '')} {text}", query.keywords):
+                if not matches_keywords(f"{r.get('title', '')} {text}", keywords):
                     continue
                 seen.add(guid)
                 out.append(RawPosting(
@@ -472,6 +503,13 @@ class HimalayasSource:
                 ))
         return out
 
+    def search(self, query: SearchQuery) -> list[RawPosting]:
+        return self._find([k for k in query.keywords if k.strip()][:self.MAX_TERMS], query.keywords)
+
+    def harvest(self, query: HarvestQuery) -> list[RawPosting]:
+        """For the job pool: every search term (not only the first four), same 12-hour cache per term."""
+        return self._find(query.terms, query.terms)
+
 
 class ArbeitsagenturSource:
     """Germany's federal job board (Bundesagentur für Arbeit, jobsuche.api.bund.dev): most jobs advertised in
@@ -481,6 +519,7 @@ class ArbeitsagenturSource:
     once and kept for three days, so repeated searches cost the board almost nothing."""
 
     name = "arbeitsagentur"
+    per_country = True  # asked once for each of the search's countries; answers only for its own
     BASE = "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service"
     MAX_TERMS = 6
     PER_TERM = 50
@@ -500,43 +539,66 @@ class ArbeitsagenturSource:
         except Exception:  # noqa: BLE001 - a job without its full text is still worth listing
             return {}
 
-    def search(self, query: SearchQuery) -> list[RawPosting]:
-        if query.country != "de":
-            return []
-        days = min(max(query.max_days_old or 7, 1), 100)
+    def _hits(self, terms: list[str], days: int, size: int, location: str = "") -> list[tuple[str, dict]]:
+        """(reference number, list row) for every job the terms find, newest first, each job once."""
         hits: dict[str, dict] = {}
-        for term in [k.strip() for k in query.keywords if k.strip()][:self.MAX_TERMS]:
-            params = {"was": term, "angebotsart": 1, "veroeffentlichtseit": days, "size": self.PER_TERM, "page": 1}
-            if query.location:
-                params["wo"] = query.location
+        for term in terms:
+            params = {"was": term, "angebotsart": 1, "veroeffentlichtseit": days, "size": size, "page": 1}
+            if location:
+                params["wo"] = location
             data = _cached_json(self.http, f"{self.BASE}/pc/v6/jobs", 6 * 3600, **params)
             for r in data.get("ergebnisliste") or []:
                 ref = r.get("referenznummer")
                 if ref and ref not in hits:
                     hits[ref] = r
-        newest = sorted(hits.items(), key=lambda kv: kv[1].get("datumErsteVeroeffentlichung") or "", reverse=True)
+        return sorted(hits.items(), key=lambda kv: kv[1].get("datumErsteVeroeffentlichung") or "", reverse=True)
+
+    def _posting(self, ref: str, r: dict, detail: dict) -> RawPosting:
+        title = r.get("stellenangebotsTitel") or detail.get("stellenangebotsTitel") or ""
+        text = detail.get("stellenangebotsBeschreibung") or ""
+        place = ((r.get("stellenlokationen") or [{}])[0].get("adresse") or {})
+        home = r.get("homeofficemoeglich", detail.get("homeofficemoeglich"))
+        yearly = r.get("verguetungsangabe") == "JAHRESGEHALT"
+        return RawPosting(
+            source=self.name, source_id=ref, title=title, company=r.get("firma", ""),
+            url=r.get("externeURL") or f"https://www.arbeitsagentur.de/jobsuche/jobdetail/{ref}",
+            description=text, location=place.get("ort", ""), country="de",
+            posted_date=_date(r.get("datumErsteVeroeffentlichung")),
+            # The board leaves the home-office flag out unless home office is offered.
+            work_mode="hybrid" if home is True else "onsite",
+            salary_min=r.get("gehaltsspanneVon") if yearly else None,
+            salary_max=r.get("gehaltsspanneBis") if yearly else None,
+            contract_type={"UNBEFRISTET": "permanent", "BEFRISTET": "fixed-term"}.get(r.get("vertragsdauer") or ""),
+            is_snippet=not text,
+        )
+
+    def search(self, query: SearchQuery) -> list[RawPosting]:
+        if query.country != "de":
+            return []
+        days = min(max(query.max_days_old or 7, 1), 100)
+        terms = [k.strip() for k in query.keywords if k.strip()][:self.MAX_TERMS]
         out = []
-        for ref, r in newest[:self.MAX_DETAILS]:
-            detail = self._details(ref)
-            title = r.get("stellenangebotsTitel") or detail.get("stellenangebotsTitel") or ""
-            text = detail.get("stellenangebotsBeschreibung") or ""
-            if not matches_keywords(f"{title} {text}", query.keywords):
-                continue
-            place = ((r.get("stellenlokationen") or [{}])[0].get("adresse") or {})
-            home = r.get("homeofficemoeglich", detail.get("homeofficemoeglich"))
-            yearly = r.get("verguetungsangabe") == "JAHRESGEHALT"
-            out.append(RawPosting(
-                source=self.name, source_id=ref, title=title, company=r.get("firma", ""),
-                url=r.get("externeURL") or f"https://www.arbeitsagentur.de/jobsuche/jobdetail/{ref}",
-                description=text, location=place.get("ort", ""), country="de",
-                posted_date=_date(r.get("datumErsteVeroeffentlichung")),
-                # The board leaves the home-office flag out unless home office is offered.
-                work_mode="hybrid" if home is True else "onsite",
-                salary_min=r.get("gehaltsspanneVon") if yearly else None,
-                salary_max=r.get("gehaltsspanneBis") if yearly else None,
-                contract_type={"UNBEFRISTET": "permanent", "BEFRISTET": "fixed-term"}.get(r.get("vertragsdauer") or ""),
-                is_snippet=not text,
-            ))
+        for ref, r in self._hits(terms, days, self.PER_TERM, query.location)[:self.MAX_DETAILS]:
+            raw = self._posting(ref, r, self._details(ref))
+            if matches_keywords(f"{raw.title} {raw.description}", query.keywords):
+                out.append(raw)
+        return out
+
+    HARVEST_PER_TERM = 100
+    HARVEST_DETAILS = 250
+
+    def harvest(self, query: HarvestQuery) -> list[RawPosting]:
+        """For the job pool: up to 100 jobs per term from the last two weeks, all terms. The full text is fetched
+        only for jobs the pool does not have yet (at most 250 a run, cached three days); the others come back as
+        list rows, which only refresh the pool's last-seen time."""
+        if "de" not in query.countries:
+            return []
+        out, fetched = [], 0
+        for ref, r in self._hits(query.terms, min(max(query.max_days_old, 1), 100), self.HARVEST_PER_TERM):
+            detail = {}
+            if not query.is_known(self.name, ref) and fetched < self.HARVEST_DETAILS and not query.out_of_time():
+                detail, fetched = self._details(ref), fetched + 1
+            out.append(self._posting(ref, r, detail))
         return out
 
 
@@ -560,6 +622,7 @@ class WebSearchSource:
 
     name = "websearch"
     needs_llm = True
+    per_country = True  # asked once for each of the search's countries
     MAX_TERMS = 6
     LINE = re.compile(r"^\W*(?P<title>[^|]+)\|(?P<company>[^|]*)\|(?P<location>[^|]*)\|(?P<date>[^|]*)\|\s*(?P<url>https?://\S+)")
     NOT_POSTINGS = ("google.", "vertexaisearch.", "youtube.", "facebook.", "reddit.", "wikipedia.")
@@ -947,6 +1010,9 @@ class TeamtailorSource:
 
 
 REMOTE_SOURCES = {"remotive", "jobicy", "himalayas", "weworkremotely", "remoteok", "workingnomads"}
+# Free whole boards the job harvester collects into the pool (no key, no per-request price, no model calls).
+HARVEST_BOARDS = ("arbeitsagentur", "arbeitnow", "remotive", "jobicy", "himalayas", "weworkremotely", "remoteok",
+                  "workingnomads")
 COMPANY_FEED_SOURCES = {"greenhouse", "lever", "personio", "ashby", "workable", "smartrecruiters", "recruitee",
                         "teamtailor"}
 _registry: dict[str, JobSource] | None = None
@@ -960,8 +1026,11 @@ def set_sources(sources: dict[str, JobSource] | None) -> None:
 def get_sources() -> dict[str, JobSource]:
     global _registry
     if _registry is None:
+        # The job pool reads the database; imported here so this module stays free of it.
+        from app.services.pool import PoolSource
+
         _registry = {
-            s.name: s for s in (WebSearchSource(), AdzunaSource(), ArbeitsagenturSource(), ArbeitnowSource(), GreenhouseSource(), LeverSource(), PersonioSource(),
+            s.name: s for s in (PoolSource(), WebSearchSource(),AdzunaSource(), ArbeitsagenturSource(), ArbeitnowSource(), GreenhouseSource(), LeverSource(), PersonioSource(),
                                 RemotiveSource(), JobicySource(), HimalayasSource(), WeWorkRemotelySource(),
                                 RemoteOkSource(), WorkingNomadsSource(), AshbySource(), WorkableSource(),
                                 SmartRecruitersSource(), RecruiteeSource(), TeamtailorSource())

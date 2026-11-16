@@ -75,6 +75,7 @@ SCHEDULED_JOBS = {
     "allocate": ("app.tasks.scheduler", "allocate_places"),  # once a day
     "renew-watches": ("app.services.inbox", "renew_watches"),  # once a day
     "digest": ("app.services.digest", "send_all"),          # once a week
+    "harvest": ("app.services.harvest", "run"),             # optional: tick already starts it every two hours
 }
 
 

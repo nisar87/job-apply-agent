@@ -18,6 +18,9 @@ from app.tasks.dispatch import enqueue
 from app.tasks.locks import get_redis
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+# The HTTP libraries log every address they call at INFO, keys in query strings included. Keep them to warnings.
+for noisy in ("httpx", "httpx2", "httpcore", "google_genai.models"):
+    logging.getLogger(noisy).setLevel(logging.WARNING)
 
 app = FastAPI(title="Job Apply Agent", version="0.1.0")
 app.add_middleware(

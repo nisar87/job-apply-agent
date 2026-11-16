@@ -206,6 +206,9 @@ class PoolSource:
                 work_mode=row.work_mode, is_snippet=row.is_snippet or not row.description,
                 contact_email=row.contact_email, hiring_regions=row.hiring_regions,
             ))
-            if len(out) >= self.LIMIT:
-                break
-        return out
+        # Jobs that give an address to write to come first: they can be applied to directly by email, which works
+        # far more often than a web form. Within each group the newest first (the query's order, kept by sort).
+        from app.services.postings import EMAIL_RE
+
+        out.sort(key=lambda r: 0 if (r.contact_email or EMAIL_RE.search(r.description or "")) else 1)
+        return out[:self.LIMIT]

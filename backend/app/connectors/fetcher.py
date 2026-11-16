@@ -90,11 +90,11 @@ class Fetcher:
                 time.sleep(wait)
         r.set(key, str(time.time()), ex=60)
 
-    def fetch_text(self, url: str) -> str:
+    def _get(self, url: str, kind: str, convert) -> str:
         parts = urlparse(url)
         if parts.scheme not in ("http", "https") or not parts.netloc:
             raise FetchRefused("Only http and https addresses can be fetched")
-        cache_key = f"fetch:page:{url}"
+        cache_key = f"fetch:{kind}:{url}"
         if self.use_cache:
             cached = get_redis().get(cache_key)
             if cached is not None:
@@ -108,7 +108,14 @@ class Fetcher:
         resp.raise_for_status()
         if len(resp.content) > MAX_BYTES:
             raise FetchRefused("The page is too large")
-        text = html_to_text(resp.text)
+        out = convert(resp.text)
         if self.use_cache:
-            get_redis().set(cache_key, text, ex=CACHE_SECONDS)
-        return text
+            get_redis().set(cache_key, out, ex=CACHE_SECONDS)
+        return out
+
+    def fetch_text(self, url: str) -> str:
+        return self._get(url, "page", html_to_text)
+
+    def fetch_html(self, url: str) -> str:
+        """The page's markup, for what plain text loses (mailto: links)."""
+        return self._get(url, "html", lambda markup: markup)

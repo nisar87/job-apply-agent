@@ -166,3 +166,40 @@ def test_the_german_federal_job_board_gives_fresh_jobs_with_their_full_text(clie
     assert job.url == "https://www.arbeitsagentur.de/jobsuche/jobdetail/1-A-S" and job.description.startswith("Wir entwickeln")
     assert (job.salary_min, job.salary_max, job.contract_type, job.work_mode) == (60000.0, 70000.0, "permanent", "onsite")
     assert job.posted_date.isoformat() == "2026-11-14" and not job.is_snippet
+
+
+def test_web_search_finds_jobs_like_a_chat_assistant_and_drops_made_up_links(client, llm):
+    from app.connectors.sources import WebSearchSource, registered_site
+
+    asked = []
+
+    def answer(prompt, _):
+        asked.append(prompt)
+        if "fully remote" in prompt:
+            return ("Remote C# Engineer | Acme | Remote | 2026-11-15 | https://jobs.acme.io/42\n", [{"title": "acme.io"}])
+        return ("Here you go:\n"
+                "Softwareentwickler C# | Beispiel GmbH | Berlin | November 15, 2026 | https://www.stepstone.de/job/1).\n"
+                "Senior .NET Developer | Ghost AG | Hamburg | 2026-11-14 | https://ghost-careers.example/9\n"
+                "Not a job line\n"
+                "Search | Google | - | - | https://www.google.com/search?q=x\n",
+                [{"title": "stepstone.de"}, {"title": "google.com"}])
+
+    llm.on("web_search", answer)
+    q = SearchQuery(keywords=["C#", ".NET"], country="de", max_days_old=7, home_country="pk", remote_ok=True,
+                    work_modes=["remote", "hybrid", "onsite"])
+    out = WebSearchSource().search(q, llm=llm)
+    assert [(p.title, p.url, p.country, p.work_mode) for p in out] == [
+        ("Softwareentwickler C#", "https://www.stepstone.de/job/1", "de", None),
+        ("Remote C# Engineer", "https://jobs.acme.io/42", None, "remote"),
+    ]  # the Ghost AG link was not among the pages Google returned; Google's own page is not a posting
+    assert out[0].posted_date.isoformat() == "2026-11-15" and out[0].is_snippet
+    assert len(asked) == 3 and "Germany" in asked[0] and "visa sponsorship" in asked[1] and "Pakistan" in asked[2]
+    # The same day the answers are reused: no second round of searches.
+    WebSearchSource().search(q, llm=llm)
+    assert len(asked) == 3
+    assert WebSearchSource().search(q) == []  # no model, nothing to search with
+    assert registered_site("https://a.b.example.co.uk/x") == "example.co.uk" and registered_site("stepstone.de") == "stepstone.de"
+    assert WebSearchSource.is_posting_link("https://www.rozee.pk/acme-net-developer-jobs-1234")
+    assert WebSearchSource.is_posting_link("https://careers.trivago.com/job/software-engineer/")
+    assert not WebSearchSource.is_posting_link("https://pk.indeed.com/")
+    assert not WebSearchSource.is_posting_link("https://apply.workable.com/covergo/")

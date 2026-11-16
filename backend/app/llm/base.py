@@ -127,5 +127,9 @@ class MeteredLLM:
         self._check_cap()
         return self._record(self.client.generate_with_tools(messages, tools, **kw))
 
+    def search_web(self, prompt, **kw) -> LLMResult:
+        self._check_cap()
+        return self._record(self.client.search_web(prompt, **kw))
+
     def embed(self, texts: list[str]) -> list[list[float]]:
         return self.client.embed(texts)

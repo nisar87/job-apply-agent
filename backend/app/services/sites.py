@@ -78,7 +78,7 @@ def board_url(provider: str, slug: str) -> str:
 
 
 BOARD_URLS = {
-    "arbeitnow": "https://www.arbeitnow.com", "arbeitsagentur": "https://www.arbeitsagentur.de/jobsuche", "adzuna": "https://www.adzuna.com", "remotive": "https://remotive.com",
+    "websearch": "https://www.google.com", "arbeitnow": "https://www.arbeitnow.com", "arbeitsagentur": "https://www.arbeitsagentur.de/jobsuche", "adzuna": "https://www.adzuna.com", "remotive": "https://remotive.com",
     "jobicy": "https://jobicy.com", "himalayas": "https://himalayas.app", "weworkremotely": "https://weworkremotely.com",
     "remoteok": "https://remoteok.com", "workingnomads": "https://www.workingnomads.com",
 }

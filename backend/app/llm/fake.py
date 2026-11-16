@@ -77,5 +77,13 @@ class FakeLLM:
             return self._result("", tool_calls=self.tool_script.pop(0))
         return self._result("", text="done")
 
+    def search_web(self, prompt, *, tier="fast", task="") -> LLMResult:
+        """Tests register a handler under "web_search" returning the answer text (pages default to none)."""
+        self.calls.append({"kind": "search", "task": task, "prompt": prompt})
+        handler = self.handlers.get("web_search")
+        out = handler(prompt, {}) if handler else ""
+        text, pages = (out if isinstance(out, tuple) else (out, []))
+        return self._result(prompt, text=str(text), data={"queries": [], "pages": pages})
+
     def embed(self, texts: list[str]) -> list[list[float]]:
         return [hashed_embedding(t) for t in texts]

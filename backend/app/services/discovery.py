@@ -51,13 +51,23 @@ def discover(session: Session, llm: LLMClient, campaign: Campaign, *, fetcher: F
                 log.warning("ingest failed for %s: %s", raw.url, exc)
                 errors.append(f"ingest: {type(exc).__name__}")
 
+    from app.services import cvs as cv_service
+
+    try:
+        home = str(cv_service.get_fact_sheet(session, campaign.user_id).get("home_country") or "").lower()
+    except Exception:  # noqa: BLE001 - no fact sheet yet
+        home = ""
     checked = 0
     for name in names:
         source = sources.get(name)
         if source is None:
             continue
         query_base = dict(keywords=config.keywords, location=(config.locations or [""])[0],
-                          max_days_old=config.max_posting_age_days)
+                          max_days_old=config.max_posting_age_days, home_country=home,
+                          remote_ok=bool(config.remote_outside_countries or not config.countries)
+                          and (not config.work_modes or "remote" in config.work_modes),
+                          work_modes=list(config.work_modes))
+        extra = {"llm": llm} if getattr(source, "needs_llm", False) else {}
         if name in COMPANY_FEED_SOURCES:
             # One company's own careers board at a time, from the directory, the ones checked longest ago first.
             for site in sites.due_company_boards(session, name):
@@ -80,7 +90,7 @@ def discover(session: Session, llm: LLMClient, campaign: Campaign, *, fetcher: F
         got, failed = 0, ""
         for country in _countries_for(name, config.countries):
             try:
-                raws: list[RawPosting] = source.search(SearchQuery(**query_base, country=country))
+                raws: list[RawPosting] = source.search(SearchQuery(**query_base, country=country), **extra)
             except Exception as exc:  # noqa: BLE001 - one failing source must not stop the others
                 log.warning("source %s failed: %s", name, exc)
                 errors.append(f"{name}: {type(exc).__name__}")

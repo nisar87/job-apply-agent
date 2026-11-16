@@ -132,6 +132,21 @@ class GeminiClient:
         text = "".join(p.text for p in parts if getattr(p, "text", None) and not getattr(p, "thought", False))
         return LLMResult(text=text, tool_calls=calls, input_tokens=i, output_tokens=o, model=model, raw=raw)
 
+    def search_web(self, prompt: str, *, tier: str = "fast", task: str = "") -> LLMResult:
+        """Answer with Google Search, the way a chat assistant looks things up. data holds the queries the model
+        ran and the pages it read, so callers can tell a found link from a made-up one."""
+        model = self._model(tier)
+        resp = self._call(lambda: self._client.models.generate_content(
+            model=model, contents=prompt,
+            config=types.GenerateContentConfig(tools=[types.Tool(google_search=types.GoogleSearch())]),
+        ))
+        i, o = self._usage(resp)
+        meta = resp.candidates[0].grounding_metadata if resp.candidates else None
+        pages = [{"title": c.web.title or "", "uri": c.web.uri or ""}
+                 for c in ((meta.grounding_chunks or []) if meta else []) if getattr(c, "web", None)]
+        data = {"queries": list((meta.web_search_queries or []) if meta else []), "pages": pages}
+        return LLMResult(text=resp.text or "", data=data, input_tokens=i, output_tokens=o, model=model)
+
     def embed(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []

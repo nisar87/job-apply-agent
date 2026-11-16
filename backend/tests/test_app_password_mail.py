@@ -5,6 +5,7 @@ import smtplib
 import uuid
 from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
+from email.utils import format_datetime
 
 import pytest
 
@@ -103,7 +104,7 @@ class FakeGmail:
 def _raw(sender, to, subject, body, in_reply_to=None) -> bytes:
     msg = EmailMessage()
     msg["From"], msg["To"], msg["Subject"] = sender, to, subject
-    msg["Date"] = "Mon, 16 Nov 2026 10:00:00 +0000"
+    msg["Date"] = format_datetime(datetime.now(UTC) + timedelta(minutes=1))  # always just after anything sent now
     msg["Message-ID"] = f"<{uuid.uuid4().hex}@mail.example>"
     if in_reply_to:
         msg["In-Reply-To"] = in_reply_to

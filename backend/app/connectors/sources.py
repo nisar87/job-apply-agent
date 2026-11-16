@@ -24,6 +24,9 @@ class SearchQuery:
     location: str = ""
     max_days_old: int | None = None
     company_slugs: list[str] = field(default_factory=list)  # for per-company feeds
+    remote_ok: bool = False  # remote jobs from other countries are welcome
+    home_country: str = ""  # where the candidate lives (ISO code), for remote jobs that hire only from some places
+    work_modes: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -537,6 +540,130 @@ class ArbeitsagenturSource:
         return out
 
 
+def _loose_date(value: str) -> date | None:
+    value = (value or "").strip()
+    for fmt in ("%Y-%m-%d", "%B %d, %Y", "%b %d, %Y", "%d %B %Y", "%d.%m.%Y", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(value, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+class WebSearchSource:
+    """Looks for jobs the way ChatGPT or Grok do: the model searches Google (Gemini's Google Search tool), reads
+    the results and lists the postings it found. No job-board account or key is needed; it runs on the user's
+    model key, a few searches a day.
+
+    A listed link is kept only when its site is among the pages Google actually returned, so a link the model
+    made up is dropped; the agent then opens each page and reads the whole posting like any other."""
+
+    name = "websearch"
+    needs_llm = True
+    MAX_TERMS = 6
+    LINE = re.compile(r"^\W*(?P<title>[^|]+)\|(?P<company>[^|]*)\|(?P<location>[^|]*)\|(?P<date>[^|]*)\|\s*(?P<url>https?://\S+)")
+    NOT_POSTINGS = ("google.", "vertexaisearch.", "youtube.", "facebook.", "reddit.", "wikipedia.")
+
+    def __init__(self, clock=None):
+        self.clock = clock or (lambda: datetime.now(UTC))
+
+    def plans(self, query: SearchQuery) -> list[tuple[str, str]]:
+        """(what to search for, kind) for one day: jobs in the chosen country, remote jobs open to the candidate's
+        country, and English-language jobs that help people move to the chosen country."""
+        from app.countries import name_of as country_name
+
+        # Short, plain requests work best: a long list of skills or rules makes the model answer from memory.
+        skills = " / ".join([k for k in query.keywords if k.strip()][:3]) or "software"
+        days = min(query.max_days_old or 7, 14)
+        home = country_name(query.home_country) if query.home_country else ""
+        modes = {"onsite": "on-site", "hybrid": "hybrid", "remote": "remote"}
+        out = []
+        if query.country:
+            where = country_name(query.country)
+            how = " or ".join(modes.get(m, m) for m in (query.work_modes or ["onsite", "hybrid", "remote"]))
+            out.append((f"{skills} developer job postings in {where} ({how}) published in the last {days} days", "country"))
+            if home and query.home_country != query.country:
+                out.append((f"English-language {skills} developer job postings in {where} published in the last "
+                            f"{days} days that offer visa sponsorship or relocation", "relocation"))
+        if query.remote_ok:
+            open_to = f"that accept candidates living in {home}" if home else "open to candidates worldwide"
+            out.append((f"fully remote {skills} developer job postings published in the last {days} days {open_to}",
+                        "remote"))
+        return out
+
+    def _ask(self, llm, plan: str) -> tuple[str, list[dict]]:
+        import json
+
+        from app.tasks.locks import get_redis
+
+        key = f"websearch:{self.clock().date().isoformat()}:{plan}"
+        try:
+            cached = get_redis().get(key)
+        except Exception:  # noqa: BLE001
+            cached = None
+        if cached:
+            data = json.loads(cached)
+            return data["text"], data["pages"]
+        prompt = (f"Search the web for {plan}. Prefer the employer's own careers page or the original job board page. "
+                  "List up to 15 distinct postings, one per line, as: "
+                  "title | company | location | date posted | direct URL of the posting")
+        # The stronger model really searches; the light one tends to answer from memory with made-up links.
+        result = llm.search_web(prompt, tier="strong", task="web_search")
+        pages = (result.data or {}).get("pages", [])
+        try:
+            get_redis().set(key, json.dumps({"text": result.text, "pages": pages}), ex=26 * 3600)
+        except Exception:  # noqa: BLE001
+            pass
+        return result.text, pages
+
+    @staticmethod
+    def is_posting_link(url: str) -> bool:
+        """One job's page has a path of its own: two or more parts, or an id ('/jobs-123', '?id=9')."""
+        rest = re.sub(r"^https?://[^/]+", "", url)
+        parts = [p for p in rest.split("?")[0].split("/") if p]
+        return len(parts) >= 2 or bool(re.search(r"\d", rest))
+
+    def search(self, query: SearchQuery, llm=None) -> list[RawPosting]:
+        if llm is None or not hasattr(llm, "search_web"):
+            return []
+        seen, out = set(), []
+        for plan, kind in self.plans(query):
+            text, pages = self._ask(llm, plan)
+            # Sites Google really returned (the page titles are their domain names).
+            found_sites = {registered_site(p.get("title", "")) for p in pages} - {""}
+            for line in (text or "").splitlines():
+                m = self.LINE.match(line.strip())
+                if not m:
+                    continue
+                url = m["url"].rstrip(").,;]>")
+                site = registered_site(url)
+                if url in seen or not site or any(site.startswith(b) or f".{b}" in site for b in self.NOT_POSTINGS):
+                    continue
+                if site not in found_sites:
+                    continue  # not a page the search returned: possibly made up
+                if not self.is_posting_link(url):
+                    continue  # a home page or a company's whole board, not one job
+                seen.add(url)
+                title, company, location = m["title"].strip(), m["company"].strip(), m["location"].strip()
+                out.append(RawPosting(
+                    source=self.name, source_id=url, url=url, title=title, company=company, location=location,
+                    description=f"{title} at {company}, {location}.", posted_date=_loose_date(m["date"]),
+                    country=query.country if kind != "remote" else None,
+                    work_mode="remote" if kind == "remote" else None, is_snippet=True,
+                ))
+        return out
+
+
+def registered_site(value: str) -> str:
+    """'https://www.jobs.example.co.uk/x' or 'jobs.example.com' -> the last two labels ('example.co.uk' keeps three)."""
+    host = re.sub(r"^https?://", "", (value or "").strip().lower()).split("/")[0].split(":")[0]
+    labels = [p for p in host.split(".") if p]
+    if len(labels) < 2:
+        return ""
+    keep = 3 if len(labels) >= 3 and labels[-2] in ("co", "com", "org", "net", "ac", "gov") and len(labels[-1]) == 2 else 2
+    return ".".join(labels[-keep:])
+
+
 class BoardMissing(Exception):
     """A company's board no longer exists on that hiring system (404 or an empty company)."""
 
@@ -834,7 +961,7 @@ def get_sources() -> dict[str, JobSource]:
     global _registry
     if _registry is None:
         _registry = {
-            s.name: s for s in (AdzunaSource(), ArbeitsagenturSource(), ArbeitnowSource(), GreenhouseSource(), LeverSource(), PersonioSource(),
+            s.name: s for s in (WebSearchSource(), AdzunaSource(), ArbeitsagenturSource(), ArbeitnowSource(), GreenhouseSource(), LeverSource(), PersonioSource(),
                                 RemotiveSource(), JobicySource(), HimalayasSource(), WeWorkRemotelySource(),
                                 RemoteOkSource(), WorkingNomadsSource(), AshbySource(), WorkableSource(),
                                 SmartRecruitersSource(), RecruiteeSource(), TeamtailorSource())

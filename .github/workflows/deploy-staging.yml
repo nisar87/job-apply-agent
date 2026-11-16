@@ -69,7 +69,7 @@ jobs:
             --memory 2Gi --cpu 1 --no-cpu-throttling --min-instances 0 --max-instances 2 --timeout 1800 \
             --set-cloudsql-instances "$SQL_CONN" \
             --add-volume name=files,type=cloud-storage,bucket="$BUCKET" --add-volume-mount volume=files,mount-path=/data \
-            --set-env-vars "APP_ENV=staging,STORAGE_DIR=/data,REDIS_URL=postgres,TASKS_INLINE=true,LLM_PROVIDER=gemini,MAIL_PROVIDER=gmail,HIDE_FROM_SEARCH=true,MANUAL_RUNS_IN_BACKGROUND=true,AGENT_REPLY_ANY_TIME=true,FRONTEND_URL=https://$DOMAIN,GOOGLE_REDIRECT_URI=https://$DOMAIN/api/mail/google/callback,GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID,SANDBOX_RECIPIENT=$SANDBOX_RECIPIENT,SIGNUP_ALLOWLIST=$SIGNUP_ALLOWLIST,ADMIN_EMAILS=$SIGNUP_ALLOWLIST" \
+            --set-env-vars "APP_ENV=staging,STORAGE_DIR=/data,REDIS_URL=postgres,TASKS_INLINE=true,LLM_PROVIDER=gemini,MAIL_PROVIDER=gmail,HIDE_FROM_SEARCH=true,MANUAL_RUNS_IN_BACKGROUND=true,AGENT_REPLY_ANY_TIME=true,FRONTEND_URL=https://$DOMAIN,GOOGLE_REDIRECT_URI=https://$DOMAIN/api/mail/google/callback,GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID,SANDBOX_RECIPIENT=$SANDBOX_RECIPIENT,SIGNUP_ALLOWLIST=$SIGNUP_ALLOWLIST,ADMIN_EMAILS=$SIGNUP_ALLOWLIST,AGENT_MODE=playbook" \
             --set-secrets "DATABASE_URL=DATABASE_URL:latest,DATABASE_OWNER_URL=DATABASE_OWNER_URL:latest,SECRET_KEY=SECRET_KEY:latest,TOKEN_ENCRYPTION_KEY=TOKEN_ENCRYPTION_KEY:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest,SCHEDULER_TOKEN=SCHEDULER_TOKEN:latest"
 
       - name: Deploy the website

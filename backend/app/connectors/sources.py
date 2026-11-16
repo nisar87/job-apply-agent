@@ -81,36 +81,137 @@ def _date(value) -> date | None:
         return None
 
 
-class AdzunaSource:
-    name = "adzuna"
+class AdzunaLimit(Exception):
+    """Adzuna refused because the plan's calls are used up (or the key is not active)."""
 
-    def __init__(self, http: httpx.Client | None = None):
+
+class AdzunaSource:
+    """Adzuna (jobs from StepStone, Indeed and company sites, by country). Every request counts against the plan,
+    so each one is made to bring back as many new, relevant jobs as possible:
+
+    - one search term per request, in job titles only. Adzuna drops symbols, so a phrase like "C# .NET" turns into
+      "c net" and pulls in bricklayers and "Net at Work GmbH"; ".net" alone in titles is about 90% real .NET jobs.
+      Terms that shrink to a single letter ("C#") are not sent; multi-word keywords are left out.
+    - only jobs since the last search of the same term (plus a day), newest first, 50 per page; a further page
+      only when the page was full.
+    - the terms take turns from one day to the next when the budget does not cover all of them.
+    - one request per term a day at most: the answer is shared by every user and every run that day.
+    - a daily (and optional monthly) budget for all users together; when Adzuna refuses, nothing more is asked
+      until the next day.
+    The postings are still checked against all the search's keywords here, and the agent reads each one in full."""
+
+    name = "adzuna"
+    BASE = "https://api.adzuna.com/v1/api/jobs"
+    PER_PAGE = 50
+    MAX_PAGES = 3
+
+    def __init__(self, http: httpx.Client | None = None, clock=None):
         self.http = http or httpx.Client(timeout=20)
+        self.clock = clock or (lambda: datetime.now(UTC))
+
+    @staticmethod
+    def terms(keywords: list[str]) -> list[str]:
+        out = []
+        for k in keywords:
+            k = k.strip().lower()
+            if not k or " " in k or len(re.sub(r"[^a-z0-9]", "", k)) < 2:
+                continue
+            if k not in out:
+                out.append(k)
+        return out
+
+    def _kv(self):
+        from app.tasks.locks import get_redis
+
+        return get_redis()
+
+    def _spend(self) -> bool:
+        """Takes one call from today's (and this month's) budget; False when none is left."""
+        s, kv, now = get_settings(), self._kv(), self.clock()
+        if kv.get("adzuna:paused:" + now.date().isoformat()):
+            return False
+        day, month = f"adzuna:calls:{now.date().isoformat()}", f"adzuna:calls:{now:%Y-%m}"
+        if int(kv.get(day) or 0) >= s.adzuna_daily_calls:
+            return False
+        if s.adzuna_monthly_calls and int(kv.get(month) or 0) >= s.adzuna_monthly_calls:
+            return False
+        kv.incr(day), kv.expire(day, 2 * 86400)
+        kv.incr(month), kv.expire(month, 32 * 86400)
+        return True
+
+    def _page(self, country: str, term: str, days: int, page: int, location: str) -> dict:
+        import json
+
+        s, kv = get_settings(), self._kv()
+        # One answer per term and day, shared by every user and every run that day (runs come every few hours).
+        cache = f"adzuna:result:{self.clock().date().isoformat()}:{country}:{term}:{location}:{page}"
+        cached = kv.get(cache)
+        if cached:
+            return json.loads(cached)
+        if not self._spend():
+            raise AdzunaLimit("")  # our own budget: a normal pause, not a failure
+        params = {"app_id": s.adzuna_app_id, "app_key": s.adzuna_app_key, "results_per_page": self.PER_PAGE,
+                  "title_only": term, "sort_by": "date", "max_days_old": days, "content-type": "application/json"}
+        if location:
+            params["where"] = location
+        resp = self.http.get(f"{self.BASE}/{country}/search/{page}", params=params)
+        if resp.status_code in (401, 403, 429):
+            kv.set("adzuna:paused:" + self.clock().date().isoformat(), "1", ex=2 * 86400)
+            raise AdzunaLimit(f"Adzuna refused the request ({resp.status_code}): the plan's calls may be used up")
+        resp.raise_for_status()
+        data = resp.json()
+        kv.set(cache, json.dumps(data), ex=26 * 3600)
+        return data
 
     def search(self, query: SearchQuery) -> list[RawPosting]:
         s = get_settings()
-        if not (s.adzuna_app_id and s.adzuna_app_key):
+        terms = self.terms(query.keywords)
+        if not (s.adzuna_app_id and s.adzuna_app_key) or not terms or not query.country:
             return []
-        params = {
-            "app_id": s.adzuna_app_id, "app_key": s.adzuna_app_key, "results_per_page": 50,
-            "what_or": " ".join(query.keywords), "sort_by": "date", "content-type": "application/json",
-        }
-        if query.location:
-            params["where"] = query.location
-        if query.max_days_old:
-            params["max_days_old"] = query.max_days_old
-        resp = self.http.get(f"https://api.adzuna.com/v1/api/jobs/{query.country}/search/1", params=params)
-        resp.raise_for_status()
-        out = []
-        for r in resp.json().get("results", []):
-            out.append(RawPosting(
-                source=self.name, source_id=str(r.get("id")), url=r.get("redirect_url", ""),
-                title=html_to_text(r.get("title", "")), company=(r.get("company") or {}).get("display_name", ""),
-                description=html_to_text(r.get("description", "")),
-                location=(r.get("location") or {}).get("display_name", ""), country=query.country,
-                posted_date=_date(r.get("created")), salary_min=r.get("salary_min"), salary_max=r.get("salary_max"),
-                contract_type=r.get("contract_time") or r.get("contract_type"), is_snippet=True,
-            ))
+        kv, now = self._kv(), self.clock()
+        # Start with the term searched longest ago, so every term gets its turn within the budget.
+        def last(term: str) -> str:
+            return kv.get(f"adzuna:last:{query.country}:{term}") or ""
+        terms.sort(key=last)
+        cap = query.max_days_old or 30
+        seen, out, refused = set(), [], None
+        for term in terms:
+            previous = last(term)
+            days = cap
+            if previous:
+                since = (now - datetime.fromisoformat(previous)).days + 1
+                days = max(1, min(cap, since))
+            got_any = False
+            for page in range(1, self.MAX_PAGES + 1):
+                try:
+                    data = self._page(query.country, term, days, page, query.location)
+                except AdzunaLimit as exc:
+                    refused = exc
+                    break
+                got_any = True
+                rows = data.get("results") or []
+                for r in rows:
+                    rid = str(r.get("id"))
+                    title, text = html_to_text(r.get("title", "")), html_to_text(r.get("description", ""))
+                    if rid in seen or not matches_keywords(f"{title} {text}", query.keywords):
+                        continue
+                    seen.add(rid)
+                    out.append(RawPosting(
+                        source=self.name, source_id=rid, url=r.get("redirect_url", ""), title=title,
+                        company=(r.get("company") or {}).get("display_name", ""), description=text,
+                        location=(r.get("location") or {}).get("display_name", ""), country=query.country,
+                        posted_date=_date(r.get("created")), salary_min=r.get("salary_min"),
+                        salary_max=r.get("salary_max"), contract_type=r.get("contract_time") or r.get("contract_type"),
+                        is_snippet=True,
+                    ))
+                if len(rows) < self.PER_PAGE:
+                    break
+            if got_any:
+                kv.set(f"adzuna:last:{query.country}:{term}", now.isoformat(), ex=60 * 86400)
+            if refused:
+                break
+        if refused and str(refused) and not out:
+            raise refused  # Adzuna itself refused: shown on the sources page; the other sources carry on
         return out
 
 

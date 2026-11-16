@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     # Job sources
     adzuna_app_id: str = ""
     adzuna_app_key: str = ""
+    # Adzuna counts every request: its trial has 25 in total, the paid plans 500 a day and 5,000 or 20,000 a month.
+    adzuna_daily_calls: int = 2
+    adzuna_monthly_calls: int = 0  # 0 = no monthly cap beyond the daily one
 
     # The product's own email (escalations, digest, account notices). Never used for applications.
     smtp_host: str = ""

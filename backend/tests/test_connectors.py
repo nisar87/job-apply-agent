@@ -12,6 +12,7 @@ from app.connectors import mail as mail_mod
 from app.connectors.fetcher import Fetcher, FetchRefused, html_to_text
 from app.connectors.mail import Attachment, GmailProvider, MailAuthError, OutgoingMail, build_mime
 from app.connectors.sources import (
+    AdzunaLimit,
     AdzunaSource,
     ArbeitnowSource,
     FakeSource,
@@ -121,6 +122,7 @@ def test_adzuna_source(monkeypatch):
 
     def handler(req: httpx.Request) -> httpx.Response:
         assert req.url.path == "/v1/api/jobs/at/search/1" and req.url.params["max_days_old"] == "7"
+        assert req.url.params["title_only"] == "python"
         return httpx.Response(200, json={"results": [{
             "id": 42, "title": "<strong>Python</strong> Developer", "company": {"display_name": "Acme GmbH"},
             "location": {"display_name": "Wien"}, "description": "Great <b>job</b>…", "created": "2026-11-08T10:00:00Z",
@@ -129,6 +131,58 @@ def test_adzuna_source(monkeypatch):
     out = AdzunaSource(client_for(handler)).search(SearchQuery(keywords=["python"], country="at", max_days_old=7))
     assert out[0].title == "Python Developer" and out[0].is_snippet and out[0].posted_date.isoformat() == "2026-11-08"
     assert out[0].salary_min == 50000 and out[0].country == "at"
+    get_settings.cache_clear()
+
+
+def test_adzuna_makes_every_call_count(monkeypatch):
+    from datetime import UTC, datetime, timedelta
+
+    monkeypatch.setenv("ADZUNA_APP_ID", "id")
+    monkeypatch.setenv("ADZUNA_APP_KEY", "key")
+    monkeypatch.setenv("ADZUNA_DAILY_CALLS", "3")
+    get_settings.cache_clear()
+    calls = []
+
+    def job(i, title):
+        return {"id": i, "title": title, "description": "", "created": "2026-11-15T10:00:00Z", "redirect_url": f"https://a/{i}"}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        p = req.url.params
+        calls.append((p["title_only"], req.url.path.rsplit("/", 1)[1], p["max_days_old"]))
+        if p["title_only"] == ".net" and req.url.path.endswith("/1"):  # a full first page, so page 2 is worth a call
+            rows = [job(i, f".NET Entwickler {i}") for i in range(49)] + [job(99, "IT-Consultant - Net at Work GmbH")]
+            return httpx.Response(200, json={"results": rows})
+        if p["title_only"] == ".net":
+            return httpx.Response(200, json={"results": [job(100, "Senior .NET Developer")]})
+        return httpx.Response(200, json={"results": [job(200, "SQL Server DBA"), job(1, ".NET Entwickler 1")]})
+
+    now = [datetime(2026, 11, 16, 8, tzinfo=UTC)]
+    source = AdzunaSource(client_for(handler), clock=lambda: now[0])
+    keywords = ["C#", ".NET", "SQL Server", "sql", "Web API"]
+    assert AdzunaSource.terms(keywords) == [".net", "sql"]   # "c#" is just "c" to Adzuna; phrases are left out
+    out = source.search(SearchQuery(keywords=keywords, country="de", max_days_old=14))
+    # 50 + 1 on ".net" minus the consultancy that only says "Net"; "sql" brings one new job and a duplicate.
+    assert len(out) == 51 and all("Net at Work" not in p.title for p in out)
+    assert calls == [(".net", "1", "14"), (".net", "2", "14"), ("sql", "1", "14")]
+
+    # Asked again the same day: the shared results answer, no call is spent.
+    calls.clear()
+    assert len(source.search(SearchQuery(keywords=keywords, country="de", max_days_old=14))) == 51 and calls == []
+
+    # Next day, budget for one call: the term searched longest ago goes first, only for the days since then.
+    monkeypatch.setenv("ADZUNA_DAILY_CALLS", "1")
+    get_settings.cache_clear()
+    now[0] += timedelta(days=1)
+    source.search(SearchQuery(keywords=keywords, country="de", max_days_old=14))
+    assert calls == [(".net", "1", "2")]
+
+    # Adzuna refuses (trial used up): reported once, then nothing more is asked that day.
+    now[0] += timedelta(days=1)
+    calls.clear()
+    refusing = AdzunaSource(client_for(lambda r: (calls.append(1), httpx.Response(429))[1]), clock=lambda: now[0])
+    with pytest.raises(AdzunaLimit):
+        refusing.search(SearchQuery(keywords=keywords, country="at"))
+    assert refusing.search(SearchQuery(keywords=keywords, country="at")) == [] and calls == [1]
     get_settings.cache_clear()
 
 

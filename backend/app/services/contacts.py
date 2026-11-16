@@ -37,7 +37,7 @@ NOT_EMPLOYER = (
     "germantechjobs", "rozee", "persy.jobs", "yourfirm", "jobexport", "helixjobs", "softgarden", "onlyfy",
     "jobvite", "myworkdayjobs", "workday", "successfactors", "icims", "bamboohr", "breezy", "google", "kununu",
     "instaffo", "jobware", "stellenanzeigen", "kimeta", "jooble", "careerjet", "efinancialcareers", "dice.com",
-    "wellfound", "angel.co", "youtube", "facebook", "instagram", "twitter", "x.com", "github.com", "wikipedia",
+    "wellfound", "angel.co", "ycombinator", "commoncrawl", "youtube", "facebook", "instagram", "twitter", "x.com", "github.com", "wikipedia",
 )
 
 _fetch = None  # set_fetcher() in tests; None means the real, polite Fetcher (off in tests and demo mode)

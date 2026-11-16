@@ -15,6 +15,8 @@ type Pool = { jobs: number; new_last_day: number; last_harvest: { finished_at?: 
 const BOARD_NAMES: Record<string, string> = {
   pool: "Job pool (free harvester)", websearch: "Google search (by the AI)", arbeitnow: "Arbeitnow", arbeitsagentur: "Bundesagentur für Arbeit", adzuna: "Adzuna", remotive: "Remotive", jobicy: "Jobicy", himalayas: "Himalayas",
   weworkremotely: "We Work Remotely", remoteok: "Remote OK", workingnomads: "Working Nomads",
+  hackernews: "Hacker News: Who is hiring", workablesearch: "Workable job search",
+  commoncrawl: "Common Crawl (finds company career pages)",
 };
 
 function status(s: Site): { text: string; tone: string } {

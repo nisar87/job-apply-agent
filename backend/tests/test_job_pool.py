@@ -123,7 +123,8 @@ def test_the_harvester_collects_free_boards_learns_company_boards_and_checks_the
         assert len(s.execute(select(Posting)).scalars().all()) == 0  # pooled jobs are not postings yet
 
 
-def test_the_harvester_stops_at_its_time_budget(client, llm):
+def test_the_harvester_stops_at_its_time_budget(client, llm, monkeypatch):
+    monkeypatch.setattr(harvest, "BOARD_CHUNK", 1)
     make_world(client, llm)
     set_sources({"lever": LeverSource(mock(lambda r: httpx.Response(200, json=[])))})
     with system_session() as s:

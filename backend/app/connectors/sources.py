@@ -8,7 +8,7 @@ import re
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Protocol
 
 import httpx
@@ -1009,10 +1009,262 @@ class TeamtailorSource:
         return out
 
 
+def _first_email(text: str) -> str | None:
+    """The first address in a text that may be written to (disguises like 'jobs [at] acme [dot] com' undone)."""
+    from app.services.contacts import emails_in, rank
+
+    return next((e for e in emails_in(text) if rank(e) >= 0), None)
+
+
+class HackerNewsSource:
+    """Hacker News' monthly "Ask HN: Who is hiring?" thread, through the free Algolia HN API. Each top-level
+    comment is one company's post; its first line is usually "Company | Role | Place | REMOTE | …", and many give
+    an address to apply to, which makes them good jobs to apply to by email. Only this month's thread is read (and
+    last month's during the first three days of a month); thread and comments are cached for six hours.
+    Harvester only: searches reach these jobs through the job pool."""
+
+    name = "hackernews"
+    API = "https://hn.algolia.com/api/v1"
+    ROLE = re.compile(r"engineer|developer|programmer|scientist|architect|designer|manager|lead\b|devops|\bsre\b|"
+                      r"analyst|founding|\bcto\b|head of|intern|researcher|admin|consultant|specialist", re.I)
+    NOT_PLACE = re.compile(r"remote|on-?site|hybrid|full[- ]?time|part[- ]?time|contract|\$|€|£|https?://|visa|"
+                           r"salary|equity|\d+\s*k\b|intern", re.I)
+
+    def __init__(self, http: httpx.Client | None = None, clock=None):
+        self.http = http or httpx.Client(timeout=30, headers={"User-Agent": "JobApplyAgent/0.1"})
+        self.clock = clock or (lambda: datetime.now(UTC))
+
+    def search(self, query: SearchQuery) -> list[RawPosting]:
+        return []  # read by the harvester only
+
+    def threads(self) -> list[dict]:
+        data = _cached_json(self.http, f"{self.API}/search_by_date", 6 * 3600, tags="story,author_whoishiring",
+                            hitsPerPage=20)
+        today = self.clock().date()
+        months = {(today.year, today.month)}
+        if today.day <= 3:
+            last = today.replace(day=1) - timedelta(days=1)
+            months.add((last.year, last.month))
+        out = []
+        for hit in data.get("hits") or []:
+            posted = _date(hit.get("created_at"))
+            if (hit.get("title") or "").startswith("Ask HN: Who is hiring") and posted and (posted.year, posted.month) in months:
+                out.append(hit)
+        return out
+
+    @classmethod
+    def first_line(cls, line: str) -> tuple[str, str, str, str | None]:
+        """(company, role, place, work mode) from 'Acme (https://acme.io) | Senior Engineer | Berlin | REMOTE'."""
+        parts = [p.strip() for p in re.split(r"\s+\|\s+|\s*\|\s*", line) if p.strip()]
+        company = re.sub(r"\s*\(?https?://\S+\)?", "", parts[0]).strip(" -–:") if parts else ""
+        rest = parts[1:]
+        low = line.lower()
+        mode = None
+        if re.search(r"\bremote\b", low) and not re.search(r"\bno remote\b|\bnot remote\b", low):
+            mode = "remote"
+        elif "hybrid" in low:
+            mode = "hybrid"
+        elif re.search(r"\bon-?site\b|\bin[- ]office\b", low):
+            mode = "onsite"
+        role = next((p for p in rest if cls.ROLE.search(p)), rest[0] if rest else "")
+        place = next((p for p in rest if p != role and not cls.NOT_PLACE.search(p)), "")
+        return company, role, place, mode
+
+    def _posting(self, comment: dict) -> RawPosting | None:
+        import html as html_lib
+
+        markup = comment.get("text") or ""
+        if not markup or comment.get("deleted") or comment.get("dead"):
+            return None
+        head = html_to_text(re.split(r"<p>", markup, maxsplit=1)[0])
+        company, role, place, mode = self.first_line(html_lib.unescape(head).splitlines()[0] if head else "")
+        if not company or not role:
+            return None
+        text = html_to_text(markup.replace("<p>", "\n\n<p>"))
+        cid = str(comment.get("id"))
+        return RawPosting(
+            source=self.name, source_id=cid, url=f"https://news.ycombinator.com/item?id={cid}", title=role[:300],
+            company=company[:200], description=text, location=place, posted_date=_date(comment.get("created_at")),
+            work_mode=mode, contact_email=_first_email(text),
+        )
+
+    def harvest(self, query: HarvestQuery) -> list[RawPosting]:
+        out = []
+        for thread in self.threads():
+            item = _cached_json(self.http, f"{self.API}/items/{thread.get('objectID')}", 6 * 3600)
+            for comment in item.get("children") or []:
+                raw = self._posting(comment)
+                if raw is not None:
+                    out.append(raw)
+        return out
+
+
+class WorkableSearchSource:
+    """Workable's public job search (jobs.workable.com), which lists jobs of every company on Workable, no key.
+    For each search term: one query per chosen country (by name) and one for remote jobs, a few pages each, only
+    jobs from the last two weeks; each query is cached for six hours. The company's own website is added to the
+    text, so the employer's published address can be looked up for applying by email, and the company's Workable
+    board is added to the directory so all its jobs are read too. Harvester only."""
+
+    name = "workablesearch"
+    URL = "https://jobs.workable.com/api/v1/jobs"
+    PAGES = 3
+
+    def __init__(self, http: httpx.Client | None = None, clock=None):
+        self.http = http or httpx.Client(timeout=30, headers={"User-Agent": "JobApplyAgent/0.1"})
+        self.clock = clock or (lambda: datetime.now(UTC))
+
+    def search(self, query: SearchQuery) -> list[RawPosting]:
+        return []  # read by the harvester only
+
+    @staticmethod
+    def _place(r: dict) -> tuple[str, str | None]:
+        loc = r.get("location") if isinstance(r.get("location"), dict) else {}
+        names = [loc.get(k) for k in ("city", "subregion", "countryName") if loc.get(k)]
+        if not names and isinstance(r.get("locations"), list):
+            names = [x if isinstance(x, str) else ", ".join(str(v) for v in (x or {}).values() if isinstance(v, str))
+                     for x in r["locations"][:1]]
+        code = (loc.get("countryCode") or loc.get("country_code") or "").lower() or None
+        return ", ".join(n for n in names if n), code
+
+    def _posting(self, r: dict) -> RawPosting | None:
+        company = r.get("company") if isinstance(r.get("company"), dict) else {}
+        name = company.get("title") or company.get("name") or ""
+        title = r.get("title") or ""
+        if not title or not r.get("id"):
+            return None
+        place, code = self._place(r)
+        url = r.get("url") or r.get("applyUrl") or f"https://jobs.workable.com/view/{r.get('id')}"
+        parts = [html_to_text(r.get(k) or "") for k in ("description", "requirementsSection", "benefitsSection")]
+        text = "\n\n".join(p for p in parts if p)
+        website = company.get("website") or company.get("websiteUrl") or ""
+        if not website and isinstance(company.get("url"), str) and "workable.com" not in company["url"]:
+            website = company["url"]
+        board = company.get("url") if isinstance(company.get("url"), str) and "apply.workable.com" in company["url"] else ""
+        slug = company.get("slug") or company.get("subdomain") or ""
+        if slug and not board:
+            board = f"https://apply.workable.com/{slug}/"
+        lines = [text or f"{title} at {name}. {place}".strip()]
+        if board:
+            lines.append(f"Careers page: {board}")
+        if website:
+            lines.append(f"Company website: {website if '://' in website else 'https://' + website}")
+        workplace = str(r.get("workplace") or r.get("workplaceType") or "").lower().replace("-", "_")
+        return RawPosting(
+            source=self.name, source_id=str(r.get("id")), url=url, title=title, company=name,
+            description="\n\n".join(lines), location=place, country=code,
+            posted_date=_date(r.get("created") or r.get("createdAt") or r.get("published")),
+            work_mode={"remote": "remote", "hybrid": "hybrid", "on_site": "onsite", "onsite": "onsite"}.get(workplace),
+            contract_type=r.get("employmentType") or None, is_snippet=not text,
+        )
+
+    def _query(self, params: dict, query: HarvestQuery, since) -> list[RawPosting]:
+        out, token = [], None
+        for _ in range(self.PAGES):
+            if query.out_of_time():
+                break
+            data = _cached_json(self.http, self.URL, 6 * 3600, **params, **({"pageToken": token} if token else {}))
+            rows = data.get("jobs") or []
+            for r in rows:
+                raw = self._posting(r)
+                if raw and (raw.posted_date is None or raw.posted_date >= since):
+                    out.append(raw)
+            token = data.get("nextPageToken")
+            fresh = [r for r in rows if (_date(r.get("created") or r.get("createdAt")) or since) >= since]
+            if not token or not rows or not fresh:
+                break
+        return out
+
+    def harvest(self, query: HarvestQuery) -> list[RawPosting]:
+        from app.countries import name_of
+
+        since = self.clock().date() - timedelta(days=query.max_days_old)
+        seen, out = set(), []
+        for term in query.terms:
+            runs = [{"query": term, "location": name_of(c)} for c in query.countries]
+            runs.append({"query": term, "workplace": "remote"})
+            for params in runs:
+                if query.out_of_time():
+                    return out
+                for raw in self._query(params, query, since):
+                    if raw.source_id not in seen:
+                        seen.add(raw.source_id)
+                        out.append(raw)
+        return out
+
+
+class CommonCrawlSource:
+    """Finds companies' careers boards in Common Crawl's free URL index, a slice per harvest run. For each
+    hiring-system address pattern (jobs.lever.co/*, *.recruitee.com, …) the newest monthly index is read page by
+    page; where it got to is kept in the key-value store, so the next run carries on and a finished index is not
+    read again until a newer one is published (about monthly). Returns the links; the harvester takes the
+    company ids from them and adds the boards to the directory. Gives no jobs itself."""
+
+    name = "commoncrawl"
+    INDEX = "https://index.commoncrawl.org"
+    PATTERNS = ("jobs.lever.co/*", "boards.greenhouse.io/*", "job-boards.greenhouse.io/*", "jobs.ashbyhq.com/*",
+                "apply.workable.com/*", "*.recruitee.com", "*.jobs.personio.de", "*.teamtailor.com")
+    PAGES_PER_RUN = 3
+    CURSOR = "commoncrawl:cursor"
+
+    def __init__(self, http: httpx.Client | None = None):
+        self.http = http or httpx.Client(timeout=120, headers={"User-Agent": "JobApplyAgent/0.1"})
+
+    def search(self, query: SearchQuery) -> list[RawPosting]:
+        return []  # finds boards, not jobs
+
+    def _kv(self):
+        from app.tasks.locks import get_redis
+
+        return get_redis()
+
+    def cursor(self) -> dict:
+        import json
+
+        raw = self._kv().get(self.CURSOR)
+        return json.loads(raw) if raw else {}
+
+    def find_boards(self, query: HarvestQuery) -> list[str]:
+        import json
+
+        indexes = _cached_json(self.http, f"{self.INDEX}/collinfo.json", 24 * 3600)
+        newest = (indexes[0] or {}).get("id") if isinstance(indexes, list) and indexes else None
+        if not newest:
+            return []
+        state = self.cursor()
+        if state.get("index") != newest:
+            state = {"index": newest, "pattern": 0, "page": 0, "pages": None}
+        links: list[str] = []
+        for _ in range(self.PAGES_PER_RUN):
+            if state["pattern"] >= len(self.PATTERNS) or query.out_of_time():
+                break
+            pattern, api = self.PATTERNS[state["pattern"]], f"{self.INDEX}/{newest}-index"
+            if state["pages"] is None:
+                resp = self.http.get(api, params={"url": pattern, "output": "json", "showNumPages": "true"})
+                resp.raise_for_status()
+                state["pages"] = int(resp.json().get("pages") or 0)
+            if state["page"] < state["pages"]:
+                resp = self.http.get(api, params={"url": pattern, "output": "json", "fl": "url", "page": state["page"]})
+                if resp.status_code != 404:  # 404: no captures on this page
+                    resp.raise_for_status()
+                    for line in resp.text.splitlines():
+                        try:
+                            links.append(json.loads(line).get("url") or "")
+                        except ValueError:
+                            continue
+                state["page"] += 1
+            if state["page"] >= state["pages"]:
+                state.update(pattern=state["pattern"] + 1, page=0, pages=None)
+            self._kv().set(self.CURSOR, json.dumps(state), ex=90 * 86400)
+        return [u for u in links if u]
+
+
 REMOTE_SOURCES = {"remotive", "jobicy", "himalayas", "weworkremotely", "remoteok", "workingnomads"}
-# Free whole boards the job harvester collects into the pool (no key, no per-request price, no model calls).
+# Free sources the job harvester collects into the pool (no key, no per-request price, no model calls). Common
+# Crawl gives no jobs: it grows the directory of company boards, which the harvester then reads.
 HARVEST_BOARDS = ("arbeitsagentur", "arbeitnow", "remotive", "jobicy", "himalayas", "weworkremotely", "remoteok",
-                  "workingnomads")
+                  "workingnomads", "hackernews", "workablesearch", "commoncrawl")
+HARVEST_ONLY = {"hackernews", "workablesearch", "commoncrawl"}
 COMPANY_FEED_SOURCES = {"greenhouse", "lever", "personio", "ashby", "workable", "smartrecruiters", "recruitee",
                         "teamtailor"}
 _registry: dict[str, JobSource] | None = None
@@ -1033,7 +1285,8 @@ def get_sources() -> dict[str, JobSource]:
             s.name: s for s in (PoolSource(), WebSearchSource(),AdzunaSource(), ArbeitsagenturSource(), ArbeitnowSource(), GreenhouseSource(), LeverSource(), PersonioSource(),
                                 RemotiveSource(), JobicySource(), HimalayasSource(), WeWorkRemotelySource(),
                                 RemoteOkSource(), WorkingNomadsSource(), AshbySource(), WorkableSource(),
-                                SmartRecruitersSource(), RecruiteeSource(), TeamtailorSource())
+                                SmartRecruitersSource(), RecruiteeSource(), TeamtailorSource(),
+                                HackerNewsSource(), WorkableSearchSource(), CommonCrawlSource())
         }
         if get_settings().llm_provider == "fake":
             _registry = {"demo": FakeSource(demo_postings())}

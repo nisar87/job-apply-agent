@@ -9,7 +9,7 @@ import re
 from datetime import UTC, datetime, timedelta
 from urllib.parse import unquote
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -36,6 +36,9 @@ _NOT_A_COMPANY = {"embed", "api", "www", "apply", "careers", "jobs", "j", "o", "
 CHECK_EVERY = timedelta(hours=12)       # a company board is checked at most twice a day
 PER_DISCOVERY = 25                      # boards checked per discovery run, oldest first
 PAUSE_AFTER_FAILURES = 5
+# Boards whose checks keep finding no technical job are checked less often.
+IDLE_SLOW, SLOW_CHECK_EVERY = 2, timedelta(days=3)
+IDLE_SLOWER, SLOWER_CHECK_EVERY = 6, timedelta(days=7)
 
 
 def find_company_boards(*texts: str) -> set[tuple[str, str]]:
@@ -55,16 +58,19 @@ def find_company_boards(*texts: str) -> set[tuple[str, str]]:
 
 def learn(session: Session, url: str, text: str = "") -> int:
     """Add the company boards a posting points to. Returns how many were new."""
-    boards = find_company_boards(url, text[:20000])
+    return add(session, find_company_boards(url, text[:20000]), url)
+
+
+def add(session: Session, boards, learned_from: str) -> int:
+    """Add (provider, company id) boards to the directory; known ones are left as they are."""
+    rows = [dict(provider=provider, slug=slug, kind="company", name=slug, enabled=True, learned_from=learned_from[:2000],
+                 url=board_url(provider, slug), last_jobs=0, last_matches=0, failures=0, last_error="", idle_checks=0)
+            for provider, slug in sorted(boards)]
     new = 0
-    for provider, slug in boards:
-        result = session.execute(
-            insert(JobSite).values(provider=provider, slug=slug, kind="company", name=slug, enabled=True,
-                                   learned_from=url[:2000], url=board_url(provider, slug), last_jobs=0,
-                                   last_matches=0, failures=0, last_error="")
-            .on_conflict_do_nothing(index_elements=["provider", "slug"])
-        )
-        new += result.rowcount or 0
+    for start in range(0, len(rows), 500):
+        result = session.execute(insert(JobSite).values(rows[start:start + 500])
+                                 .on_conflict_do_nothing(index_elements=["provider", "slug"]))
+        new += max(result.rowcount or 0, 0)
     return new
 
 
@@ -81,6 +87,8 @@ BOARD_URLS = {
     "pool": "/sources", "websearch": "https://www.google.com", "arbeitnow": "https://www.arbeitnow.com", "arbeitsagentur": "https://www.arbeitsagentur.de/jobsuche", "adzuna": "https://www.adzuna.com", "remotive": "https://remotive.com",
     "jobicy": "https://jobicy.com", "himalayas": "https://himalayas.app", "weworkremotely": "https://weworkremotely.com",
     "remoteok": "https://remoteok.com", "workingnomads": "https://www.workingnomads.com",
+    "hackernews": "https://news.ycombinator.com/submitted?id=whoishiring", "workablesearch": "https://jobs.workable.com",
+    "commoncrawl": "https://index.commoncrawl.org",
 }
 
 
@@ -96,25 +104,40 @@ def board(session: Session, provider: str) -> JobSite:
     return row
 
 
-def due_company_boards(session: Session, provider: str | None, now: datetime | None = None, limit: int = PER_DISCOVERY) -> list[JobSite]:
-    """Enabled company boards of one hiring system (or of all, when provider is None) that have not been checked
-    recently, oldest check first."""
+def due_company_boards(session: Session, provider: str | None, now: datetime | None = None, limit: int = PER_DISCOVERY,
+                       checked: bool | None = None) -> list[JobSite]:
+    """Enabled company boards of one hiring system (or of all, when provider is None) that are due, oldest check
+    first. `checked` False gives only boards never checked, True only boards checked before.
+
+    A board is due twelve hours after its last check; one whose last checks found no technical job waits longer
+    (three days after two such checks, a week after six), so thousands of boards stay affordable to check."""
     now = now or datetime.now(UTC)
-    q = select(JobSite).where(JobSite.kind == "company", JobSite.enabled.is_(True),
-                              (JobSite.last_checked_at.is_(None)) | (JobSite.last_checked_at < now - CHECK_EVERY))
+    idle = func.coalesce(JobSite.idle_checks, 0)
+    due = ((JobSite.last_checked_at.is_(None))
+           | ((idle < IDLE_SLOW) & (JobSite.last_checked_at < now - CHECK_EVERY))
+           | ((idle >= IDLE_SLOW) & (idle < IDLE_SLOWER) & (JobSite.last_checked_at < now - SLOW_CHECK_EVERY))
+           | ((idle >= IDLE_SLOWER) & (JobSite.last_checked_at < now - SLOWER_CHECK_EVERY)))
+    q = select(JobSite).where(JobSite.kind == "company", JobSite.enabled.is_(True), due)
     if provider is not None:
         q = q.where(JobSite.provider == provider)
-    rows = session.execute(q.order_by(JobSite.last_checked_at.asc().nulls_first()).limit(limit)).scalars().all()
+    if checked is not None:
+        q = q.where(JobSite.last_checked_at.is_not(None) if checked else JobSite.last_checked_at.is_(None))
+    rows = session.execute(q.order_by(JobSite.last_checked_at.asc().nulls_first(), JobSite.created_at.asc())
+                           .limit(limit)).scalars().all()
     return list(rows)
 
 
 def record(site: JobSite, *, ok: bool, jobs: int = 0, matches: int = 0, error: str = "", gone: bool = False,
-           now: datetime | None = None) -> None:
-    """Store how a check went. A board that no longer exists, or fails five times in a row, is paused."""
+           now: datetime | None = None, useful: bool | None = None) -> None:
+    """Store how a check went. A board that no longer exists, or fails five times in a row, is paused.
+    `useful` (from the harvester) says whether the board had any technical job; boards without one are checked
+    less often."""
     now = now or datetime.now(UTC)
     site.last_checked_at = now
     if ok:
         site.last_ok_at, site.last_jobs, site.last_matches, site.failures, site.last_error = now, jobs, matches, 0, ""
+        if useful is not None:
+            site.idle_checks = 0 if useful else (site.idle_checks or 0) + 1
         return
     site.failures = (site.failures or 0) + 1
     site.last_error = error[:500]

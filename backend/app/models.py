@@ -391,6 +391,8 @@ class JobSite(Base, TimestampMixin):
     last_matches: Mapped[int] = mapped_column(Integer, default=0)     # of those, matching someone's search
     failures: Mapped[int] = mapped_column(Integer, default=0)         # consecutive failed checks
     last_error: Mapped[str] = mapped_column(Text, default="")
+    # Consecutive harvester checks that found no technical job; such boards are checked less often.
+    idle_checks: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     __table_args__ = (UniqueConstraint("provider", "slug"),)
 
 

@@ -85,6 +85,23 @@ def test_apply_anyway_overrides_threshold_once(client, llm):
         assert app.override_threshold and s.get(Match, app.match_id).decision == "apply"
 
 
+def test_apply_anyway_on_a_web_form_job_lists_it_to_apply_by_hand(client, llm):
+    import uuid
+
+    from app.models import Posting
+
+    w = prepared(client, llm)
+    skipped = client.get("/api/matches?decision=skip", headers=w.headers).json()
+    with w.session() as s:
+        match = s.get(Match, uuid.UUID(skipped[0]["id"]))
+        s.get(Posting, match.posting_id).apply_route = "form"
+        s.commit()
+    r = client.post(f"/api/matches/{skipped[0]['id']}/apply-anyway", headers=w.headers)
+    assert r.status_code == 200 and r.json()["status"] == "manual_apply" and r.json()["route"] == "form"
+    with w.session() as s:
+        assert s.get(Match, uuid.UUID(skipped[0]["id"])).decision == "manual"
+
+
 def test_approve_with_edit_and_reject_flow(client, llm):
     w = prepared(client, llm)
     drafts = client.get("/api/applications?status=awaiting_approval", headers=w.headers).json()

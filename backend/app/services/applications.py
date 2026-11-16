@@ -333,14 +333,15 @@ def send(session: Session, app: Application, now: datetime | None = None, *, run
 
 
 def override_and_draft(session: Session, llm: LLMClient, match: Match) -> Application:
-    """'Apply anyway' on a skipped posting: overrides the threshold once (section 12)."""
+    """'Apply anyway' on a skipped posting: overrides the threshold once (section 12).
+
+    A posting that takes applications only on the employer's site goes on the apply-by-hand list instead."""
     posting = session.get(Posting, match.posting_id)
-    if posting.apply_route != "email":
-        raise ApplicationError("This posting only accepts a web form")
     if match.cv_version_id is None:
         raise ApplicationError("This posting was filtered out before scoring, so there is nothing to send")
     campaign = session.get(Campaign, match.campaign_id)
-    match.decision, match.reason = "apply", f"you chose to apply anyway (score {match.total_score})"
+    match.decision = "apply" if posting.apply_route == "email" else "manual"
+    match.reason = f"you chose to apply anyway (score {match.total_score})"
     app = create_draft(session, llm, campaign, match)
     app.override_threshold = True
     session.flush()

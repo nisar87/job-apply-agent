@@ -3,7 +3,7 @@
 import ast
 import re
 import uuid
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 from app.connectors.mail import FakeMailProvider, set_mail_provider
 from app.connectors.sources import FakeSource, RawPosting, set_sources
@@ -94,7 +94,7 @@ def install_brain(fake: FakeLLM) -> FakeLLM:
         filler = " ".join(f"detail{fake.counter}x{i}" for i in range(120))
         body = f"{opening} {role} at {company}. I have worked with python and kubernetes at Datawerk.\n\n{filler}"
         if german:
-            body += "\n\nIch habe mit der Plattform und dem Team sehr viel für die Firma und mit ihr gearbeitet.\n\nMit freundlichen Grüßen"
+            body += "\n\nIch habe mit der Plattform und dem Team sehr viel fÃ¼r die Firma und mit ihr gearbeitet.\n\nMit freundlichen GrÃ¼ÃŸen"
         else:
             body += "\n\nI have led the migration of services and I am available to start with a notice period.\n\nKind regards"
         add_bad = fake.bad_claim or (fake.bad_claim_once and "previous draft was rejected" not in prompt)
@@ -176,7 +176,8 @@ def scripted_agent(fake: FakeLLM):
 
 
 def raw(title="Backend Engineer", company="Acme GmbH", requirements="python, postgresql, kubernetes", email="jobs@acme.at",
-        extra="", posted=date(2026, 11, 8), source="fake", location="Vienna", country="at", **kw) -> RawPosting:
+        extra="", posted: date | None = None, source="fake", location="Vienna", country="at", **kw) -> RawPosting:
+    posted = posted or datetime.now(UTC).date() - timedelta(days=1)  # always fresh, so the age filter never trips
     desc = f"{title} at {company}. Remote within Austria. Full-time.\nRequirements: {requirements}\n{extra}\n"
     if email:
         desc += f"Send your application to {email}\n"

@@ -131,3 +131,38 @@ def test_sites_endpoint_lists_the_directory(client, llm):
     out = client.get("/api/job-sites", headers=w.headers).json()
     assert {(r["provider"], r["kind"]) for r in out} >= {("ashby", "company"), ("remotive", "board")}
     assert client.get("/api/job-sites").status_code == 401
+
+
+def test_the_german_federal_job_board_gives_fresh_jobs_with_their_full_text(client):
+    import base64
+
+    from app.connectors.sources import ArbeitsagenturSource
+
+    asked = []
+
+    def handler(request):
+        asked.append(request)
+        assert request.headers["X-API-Key"] == "jobboerse-jobsuche"
+        if "/pc/v6/jobs" in request.url.path:
+            term = request.url.params["was"]
+            assert request.url.params["veroeffentlichtseit"] == "5"
+            rows = [{"referenznummer": "1-A-S", "stellenangebotsTitel": "Softwareentwickler C# (m/w/d)",
+                     "firma": "Acme GmbH", "datumErsteVeroeffentlichung": "2026-11-14",
+                     "stellenlokationen": [{"adresse": {"ort": "Berlin"}}], "verguetungsangabe": "JAHRESGEHALT",
+                     "gehaltsspanneVon": 60000.0, "gehaltsspanneBis": 70000.0, "vertragsdauer": "UNBEFRISTET"},
+                    {"referenznummer": "2-B-S", "stellenangebotsTitel": "Lagerhelfer", "firma": "Kisten AG",
+                     "datumErsteVeroeffentlichung": "2026-11-15", "homeofficemoeglich": True}]
+            return httpx.Response(200, json={"ergebnisliste": rows if term == "C#" else rows[:1]})
+        ref = base64.b64decode(request.url.path.rsplit("/", 1)[1]).decode()
+        text = {"1-A-S": "Wir entwickeln mit C# und .NET.", "2-B-S": "Kisten tragen."}[ref]
+        return httpx.Response(200, json={"stellenangebotsBeschreibung": text})
+
+    source = ArbeitsagenturSource(http=mock(handler))
+    assert source.search(SearchQuery(keywords=["C#"], country="at")) == [] and not asked
+    out = source.search(SearchQuery(keywords=["C#", ".NET"], country="de", max_days_old=5))
+    assert len(out) == 1  # the warehouse job does not mention the keywords; the C# job came twice but counts once
+    job = out[0]
+    assert (job.source, job.source_id, job.company, job.location, job.country) == ("arbeitsagentur", "1-A-S", "Acme GmbH", "Berlin", "de")
+    assert job.url == "https://www.arbeitsagentur.de/jobsuche/jobdetail/1-A-S" and job.description.startswith("Wir entwickeln")
+    assert (job.salary_min, job.salary_max, job.contract_type, job.work_mode) == (60000.0, 70000.0, "permanent", "onsite")
+    assert job.posted_date.isoformat() == "2026-11-14" and not job.is_snippet

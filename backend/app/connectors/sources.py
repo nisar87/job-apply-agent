@@ -369,6 +369,73 @@ class HimalayasSource:
         return out
 
 
+class ArbeitsagenturSource:
+    """Germany's federal job board (Bundesagentur für Arbeit, jobsuche.api.bund.dev): most jobs advertised in
+    Germany, new ones every day, no key. Searched only when Germany is one of the search's countries.
+
+    One search per keyword (the board matches job titles), newest first; the full text of each job is fetched
+    once and kept for three days, so repeated searches cost the board almost nothing."""
+
+    name = "arbeitsagentur"
+    BASE = "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service"
+    MAX_TERMS = 6
+    PER_TERM = 50
+    MAX_DETAILS = 80
+
+    def __init__(self, http: httpx.Client | None = None):
+        self.http = http or httpx.Client(timeout=30)
+        # The board's public client id, the same for everyone (not a secret).
+        self.http.headers.update({"X-API-Key": "jobboerse-jobsuche", "User-Agent": "JobApplyAgent/0.1"})
+
+    def _details(self, ref: str) -> dict:
+        import base64
+
+        code = base64.b64encode(ref.encode()).decode()
+        try:
+            return _cached_json(self.http, f"{self.BASE}/pc/v4/jobdetails/{code}", 3 * 24 * 3600)
+        except Exception:  # noqa: BLE001 - a job without its full text is still worth listing
+            return {}
+
+    def search(self, query: SearchQuery) -> list[RawPosting]:
+        if query.country != "de":
+            return []
+        days = min(max(query.max_days_old or 7, 1), 100)
+        hits: dict[str, dict] = {}
+        for term in [k.strip() for k in query.keywords if k.strip()][:self.MAX_TERMS]:
+            params = {"was": term, "angebotsart": 1, "veroeffentlichtseit": days, "size": self.PER_TERM, "page": 1}
+            if query.location:
+                params["wo"] = query.location
+            data = _cached_json(self.http, f"{self.BASE}/pc/v6/jobs", 6 * 3600, **params)
+            for r in data.get("ergebnisliste") or []:
+                ref = r.get("referenznummer")
+                if ref and ref not in hits:
+                    hits[ref] = r
+        newest = sorted(hits.items(), key=lambda kv: kv[1].get("datumErsteVeroeffentlichung") or "", reverse=True)
+        out = []
+        for ref, r in newest[:self.MAX_DETAILS]:
+            detail = self._details(ref)
+            title = r.get("stellenangebotsTitel") or detail.get("stellenangebotsTitel") or ""
+            text = detail.get("stellenangebotsBeschreibung") or ""
+            if not matches_keywords(f"{title} {text}", query.keywords):
+                continue
+            place = ((r.get("stellenlokationen") or [{}])[0].get("adresse") or {})
+            home = r.get("homeofficemoeglich", detail.get("homeofficemoeglich"))
+            yearly = r.get("verguetungsangabe") == "JAHRESGEHALT"
+            out.append(RawPosting(
+                source=self.name, source_id=ref, title=title, company=r.get("firma", ""),
+                url=r.get("externeURL") or f"https://www.arbeitsagentur.de/jobsuche/jobdetail/{ref}",
+                description=text, location=place.get("ort", ""), country="de",
+                posted_date=_date(r.get("datumErsteVeroeffentlichung")),
+                # The board leaves the home-office flag out unless home office is offered.
+                work_mode="hybrid" if home is True else "onsite",
+                salary_min=r.get("gehaltsspanneVon") if yearly else None,
+                salary_max=r.get("gehaltsspanneBis") if yearly else None,
+                contract_type={"UNBEFRISTET": "permanent", "BEFRISTET": "fixed-term"}.get(r.get("vertragsdauer") or ""),
+                is_snippet=not text,
+            ))
+        return out
+
+
 class BoardMissing(Exception):
     """A company's board no longer exists on that hiring system (404 or an empty company)."""
 
@@ -666,7 +733,7 @@ def get_sources() -> dict[str, JobSource]:
     global _registry
     if _registry is None:
         _registry = {
-            s.name: s for s in (AdzunaSource(), ArbeitnowSource(), GreenhouseSource(), LeverSource(), PersonioSource(),
+            s.name: s for s in (AdzunaSource(), ArbeitsagenturSource(), ArbeitnowSource(), GreenhouseSource(), LeverSource(), PersonioSource(),
                                 RemotiveSource(), JobicySource(), HimalayasSource(), WeWorkRemotelySource(),
                                 RemoteOkSource(), WorkingNomadsSource(), AshbySource(), WorkableSource(),
                                 SmartRecruitersSource(), RecruiteeSource(), TeamtailorSource())

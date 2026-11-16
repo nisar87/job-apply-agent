@@ -64,7 +64,7 @@ class CampaignConfig(BaseModel):
     # Fill employers' web application forms automatically (up to two tries each); the user still approves the result.
     auto_fill_forms: bool = False
     sources: list[str] = Field(default_factory=lambda: [
-        "adzuna", "arbeitnow", "remotive", "jobicy", "himalayas", "weworkremotely", "remoteok", "workingnomads",
+        "adzuna", "arbeitsagentur", "arbeitnow", "remotive", "jobicy", "himalayas", "weworkremotely", "remoteok", "workingnomads",
         "greenhouse", "lever", "ashby", "workable", "smartrecruiters", "recruitee", "personio", "teamtailor",
     ])
     # What to do when a posting does not state something: apply | skip

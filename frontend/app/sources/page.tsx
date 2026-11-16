@@ -11,7 +11,7 @@ type Site = {
 };
 
 const BOARD_NAMES: Record<string, string> = {
-  arbeitnow: "Arbeitnow", adzuna: "Adzuna", remotive: "Remotive", jobicy: "Jobicy", himalayas: "Himalayas",
+  arbeitnow: "Arbeitnow", arbeitsagentur: "Bundesagentur für Arbeit", adzuna: "Adzuna", remotive: "Remotive", jobicy: "Jobicy", himalayas: "Himalayas",
   weworkremotely: "We Work Remotely", remoteok: "Remote OK", workingnomads: "Working Nomads",
 };
 

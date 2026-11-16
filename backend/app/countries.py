@@ -28,6 +28,31 @@ COUNTRIES: dict[str, str] = {
     "jp": "Japan", "kr": "South Korea", "lk": "Sri Lanka", "my": "Malaysia", "nz": "New Zealand",
     "ph": "Philippines", "pk": "Pakistan", "sg": "Singapore", "th": "Thailand", "tw": "Taiwan", "vn": "Vietnam",
 }
+# Every other country, so a user can search wherever they want to work (ISO 3166-1).
+COUNTRIES.update({
+    "ad": "Andorra", "af": "Afghanistan", "ag": "Antigua and Barbuda", "al": "Albania", "am": "Armenia",
+    "ao": "Angola", "az": "Azerbaijan", "ba": "Bosnia and Herzegovina", "bb": "Barbados", "bf": "Burkina Faso",
+    "bi": "Burundi", "bj": "Benin", "bn": "Brunei", "bo": "Bolivia", "bs": "Bahamas", "bt": "Bhutan",
+    "bw": "Botswana", "by": "Belarus", "bz": "Belize", "cd": "Congo (DRC)", "cf": "Central African Republic",
+    "cg": "Congo", "ci": "Côte d'Ivoire", "cm": "Cameroon", "cr": "Costa Rica", "cu": "Cuba", "cv": "Cape Verde",
+    "dj": "Djibouti", "dm": "Dominica", "do": "Dominican Republic", "dz": "Algeria", "ec": "Ecuador",
+    "er": "Eritrea", "et": "Ethiopia", "fj": "Fiji", "ga": "Gabon", "gd": "Grenada", "ge": "Georgia", "gh": "Ghana",
+    "gm": "Gambia", "gn": "Guinea", "gq": "Equatorial Guinea", "gt": "Guatemala", "gw": "Guinea-Bissau",
+    "gy": "Guyana", "hn": "Honduras", "ht": "Haiti", "iq": "Iraq", "ir": "Iran", "jm": "Jamaica", "kg": "Kyrgyzstan",
+    "kh": "Cambodia", "km": "Comoros", "kn": "Saint Kitts and Nevis", "kz": "Kazakhstan", "la": "Laos",
+    "lb": "Lebanon", "lc": "Saint Lucia", "li": "Liechtenstein", "lr": "Liberia", "ls": "Lesotho", "ly": "Libya",
+    "mc": "Monaco", "md": "Moldova", "me": "Montenegro", "mg": "Madagascar", "mk": "North Macedonia", "ml": "Mali",
+    "mm": "Myanmar", "mn": "Mongolia", "mo": "Macao", "mr": "Mauritania", "mu": "Mauritius", "mv": "Maldives",
+    "mw": "Malawi", "mz": "Mozambique", "na": "Namibia", "ne": "Niger", "ni": "Nicaragua", "np": "Nepal",
+    "pa": "Panama", "pe": "Peru", "pg": "Papua New Guinea", "pr": "Puerto Rico", "ps": "Palestine", "py": "Paraguay",
+    "rw": "Rwanda", "sb": "Solomon Islands", "sc": "Seychelles", "sd": "Sudan", "sl": "Sierra Leone",
+    "sm": "San Marino", "sn": "Senegal", "so": "Somalia", "sr": "Suriname", "ss": "South Sudan",
+    "sv": "El Salvador", "sy": "Syria", "sz": "Eswatini", "td": "Chad", "tg": "Togo", "tj": "Tajikistan",
+    "tl": "Timor-Leste", "tm": "Turkmenistan", "tn": "Tunisia", "to": "Tonga", "tt": "Trinidad and Tobago",
+    "tz": "Tanzania", "ug": "Uganda", "uy": "Uruguay", "uz": "Uzbekistan", "va": "Vatican City",
+    "vc": "Saint Vincent and the Grenadines", "ve": "Venezuela", "ws": "Samoa", "xk": "Kosovo", "ye": "Yemen",
+    "zm": "Zambia", "zw": "Zimbabwe",
+})
 
 # Names people use that are not the ISO code.
 ALIASES = {"uk": "gb", "england": "gb", "britain": "gb", "great britain": "gb", "usa": "us", "america": "us",
@@ -84,21 +109,29 @@ def name_of(code: str) -> str:
 # Remote boards say who may apply ("USA only", "Europe", "Worldwide", a list of countries). These groups turn
 # region names into countries so the agent never applies from a country the employer cannot hire in.
 _EUROPE = {"at", "be", "bg", "ch", "cy", "cz", "de", "dk", "ee", "es", "fi", "fr", "gb", "gr", "hr", "hu", "ie", "is",
-           "it", "lt", "lu", "lv", "mt", "nl", "no", "pl", "pt", "ro", "rs", "se", "si", "sk", "ua", "tr"}
-_EU = _EUROPE - {"gb", "ch", "no", "is", "rs", "ua", "tr"}
-_MIDDLE_EAST = {"ae", "bh", "il", "jo", "kw", "om", "qa", "sa", "eg"}
-_AFRICA = {"eg", "ke", "ma", "ng", "za"}
-_SOUTH_ASIA = {"pk", "in", "bd", "lk"}
-_ASIA = _SOUTH_ASIA | {"cn", "hk", "id", "jp", "kr", "my", "ph", "sg", "th", "tw", "vn"}
+           "it", "lt", "lu", "lv", "mt", "nl", "no", "pl", "pt", "ro", "rs", "se", "si", "sk", "ua", "tr",
+           "ad", "al", "ba", "by", "li", "mc", "md", "me", "mk", "sm", "va", "xk"}
+_EU = {"at", "be", "bg", "cy", "cz", "de", "dk", "ee", "es", "fi", "fr", "gr", "hr", "hu", "ie", "it", "lt", "lu", "lv",
+       "mt", "nl", "pl", "pt", "ro", "se", "si", "sk"}
+_MIDDLE_EAST = {"ae", "bh", "il", "jo", "kw", "om", "qa", "sa", "eg", "iq", "ir", "lb", "ps", "sy", "ye"}
+_AFRICA = {"eg", "ke", "ma", "ng", "za", "ao", "bf", "bi", "bj", "bw", "cd", "cf", "cg", "ci", "cm", "cv", "dj", "dz",
+           "er", "et", "ga", "gh", "gm", "gn", "gq", "gw", "km", "lr", "ls", "ly", "mg", "ml", "mr", "mu", "mw", "mz",
+           "na", "ne", "rw", "sc", "sd", "sl", "sn", "so", "ss", "sz", "td", "tg", "tn", "tz", "ug", "zm", "zw"}
+_SOUTH_ASIA = {"pk", "in", "bd", "lk", "af", "bt", "mv", "np"}
+_ASIA = _SOUTH_ASIA | {"cn", "hk", "id", "jp", "kr", "my", "ph", "sg", "th", "tw", "vn", "bn", "kh", "la", "mm", "mn",
+                       "mo", "tl", "kz", "kg", "tj", "tm", "uz", "am", "az", "ge"}
 _NORTH_AMERICA = {"us", "ca", "mx"}
-_LATAM = {"ar", "br", "cl", "co", "mx"}
+_LATAM = {"ar", "br", "cl", "co", "mx", "bo", "cr", "cu", "do", "ec", "gt", "hn", "ni", "pa", "pe", "pr", "py", "sv",
+          "uy", "ve"}
 REGIONS: dict[str, set[str]] = {
     "europe": _EUROPE, "eu": _EU, "european union": _EU, "eea": _EU | {"no", "is"}, "uk/eu": _EU | {"gb"},
     "emea": _EUROPE | _MIDDLE_EAST | _AFRICA, "middle east": _MIDDLE_EAST, "mena": _MIDDLE_EAST | {"ma"},
     "africa": _AFRICA, "south asia": _SOUTH_ASIA, "asia": _ASIA, "apac": _ASIA | {"au", "nz"},
     "asia pacific": _ASIA | {"au", "nz"}, "asia-pacific": _ASIA | {"au", "nz"}, "oceania": {"au", "nz"},
     "north america": _NORTH_AMERICA, "americas": _NORTH_AMERICA | _LATAM, "latam": _LATAM,
-    "latin america": _LATAM, "south america": {"ar", "br", "cl", "co"},
+    "latin america": _LATAM, "south america": {"ar", "br", "cl", "co", "bo", "ec", "gy", "pe", "py", "sr", "uy", "ve"},
+    "central asia": {"kz", "kg", "tj", "tm", "uz"}, "caribbean": {"ag", "bb", "bs", "cu", "dm", "do", "gd", "ht", "jm",
+                                                                 "kn", "lc", "pr", "tt", "vc"},
 }
 _WORLDWIDE = {"worldwide", "anywhere", "global", "world", "remote", "anywhere in the world", "work from anywhere"}
 

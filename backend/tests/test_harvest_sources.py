@@ -150,9 +150,10 @@ def test_common_crawl_finds_company_boards_a_slice_per_run(client, llm):
             return httpx.Response(200, json=[newest, {"id": "CC-MAIN-2026-40"}])
         assert request.url.path == f"/{newest['id']}-index"
         p = request.url.params
-        if p.get("showNumPages") == "true":
-            return httpx.Response(200, json={"pages": pages.get(p["url"], 0)})
+        assert p.get("showNumPages") is None  # the page count times out on a busy index; pages are read in turn
         fetched.append((p["url"], p["page"]))
+        if int(p["page"]) >= pages.get(p["url"], 0):
+            return httpx.Response(400, text="page out of range")  # what the index answers past the last page
         body = "\n".join(json.dumps({"url": u}) for u in lines.get((p["url"], p["page"]), []))
         return httpx.Response(200, text=body)
 
@@ -161,18 +162,19 @@ def test_common_crawl_finds_company_boards_a_slice_per_run(client, llm):
     with system_session() as s:
         out = harvest.harvest(s)
         learned = {(r.provider, r.slug) for r in s.execute(select(JobSite).where(JobSite.kind == "company")).scalars()}
-    # Three steps per run: both Lever pages, then the first Greenhouse pattern's only page.
-    assert learned == {("lever", "acme"), ("lever", "beta"), ("greenhouse", "gamma")}
-    assert fetched == [("jobs.lever.co/*", "0"), ("jobs.lever.co/*", "1"), ("boards.greenhouse.io/*", "0")]
-    assert out["sources"]["commoncrawl"] == {"links": 4, "boards": 3}
-    assert source.cursor() == {"index": "CC-MAIN-2026-44", "pattern": 2, "page": 0, "pages": None}
-    # The next runs carry on where the last one stopped (the remaining patterns have no pages).
-    for _ in range(2):
+    # Three steps per run: both Lever pages, then the answer that there is no third one.
+    assert learned == {("lever", "acme"), ("lever", "beta")}
+    assert fetched == [("jobs.lever.co/*", "0"), ("jobs.lever.co/*", "1"), ("jobs.lever.co/*", "2")]
+    assert out["sources"]["commoncrawl"] == {"links": 3, "boards": 2}
+    assert source.cursor() == {"index": "CC-MAIN-2026-44", "pattern": 1, "page": 0, "pages": None}
+    # The next runs carry on where the last one stopped: Greenhouse's page, then one look at each other pattern.
+    for _ in range(3):
         with system_session() as s:
             harvest.harvest(s)
     count = len(fetched)
-    assert count == 3 and source.cursor()["pattern"] == len(CommonCrawlSource.PATTERNS)
+    assert count == 3 + 2 + 6 and source.cursor()["pattern"] == len(CommonCrawlSource.PATTERNS)
     with system_session() as s:
+        assert ("greenhouse", "gamma") in {(r.provider, r.slug) for r in s.execute(select(JobSite)).scalars()}
         harvest.harvest(s)
     assert len(fetched) == count  # this index is done; nothing is read until a newer one appears
     newest["id"] = "CC-MAIN-2026-48"

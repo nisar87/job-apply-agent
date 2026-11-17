@@ -1239,22 +1239,21 @@ class CommonCrawlSource:
             if state["pattern"] >= len(self.PATTERNS) or query.out_of_time():
                 break
             pattern, api = self.PATTERNS[state["pattern"]], f"{self.INDEX}/{newest}-index"
-            if state["pages"] is None:
-                resp = self.http.get(api, params={"url": pattern, "output": "json", "showNumPages": "true"})
-                resp.raise_for_status()
-                state["pages"] = int(resp.json().get("pages") or 0)
-            if state["page"] < state["pages"]:
-                resp = self.http.get(api, params={"url": pattern, "output": "json", "fl": "url", "page": state["page"]})
-                if resp.status_code != 404:  # 404: no captures on this page
-                    resp.raise_for_status()
-                    for line in resp.text.splitlines():
-                        try:
-                            links.append(json.loads(line).get("url") or "")
-                        except ValueError:
-                            continue
-                state["page"] += 1
-            if state["page"] >= state["pages"]:
+            # Pages are read in turn until the index says there are no more (400 past the last page, 404 when
+            # nothing was captured). The page count request (showNumPages) is skipped: on a busy index it times
+            # out more often than the pages themselves. A timeout or server error raises, and the cursor stays
+            # where it was, so the next run tries the same page again.
+            resp = self.http.get(api, params={"url": pattern, "output": "json", "fl": "url", "page": state["page"]})
+            if resp.status_code in (400, 404):
                 state.update(pattern=state["pattern"] + 1, page=0, pages=None)
+            else:
+                resp.raise_for_status()
+                for line in resp.text.splitlines():
+                    try:
+                        links.append(json.loads(line).get("url") or "")
+                    except ValueError:
+                        continue
+                state["page"] += 1
             self._kv().set(self.CURSOR, json.dumps(state), ex=90 * 86400)
         return [u for u in links if u]
 

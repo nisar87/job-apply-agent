@@ -561,8 +561,11 @@ class ArbeitsagenturSource:
         yearly = r.get("verguetungsangabe") == "JAHRESGEHALT"
         return RawPosting(
             source=self.name, source_id=ref, title=title, company=r.get("firma", ""),
-            url=r.get("externeURL") or f"https://www.arbeitsagentur.de/jobsuche/jobdetail/{ref}",
-            description=text, location=place.get("ort", ""), country="de",
+            # Always the federal board's own page: it opens from anywhere, while many of the regional job sites the
+            # ads come from (persy.jobs, yourfirm.de, …) do not open outside Germany. The original is kept as a note.
+            url=f"https://www.arbeitsagentur.de/jobsuche/jobdetail/{ref}",
+            description=text + (f"\n\nOriginal ad: {r['externeURL']}" if r.get("externeURL") else ""),
+            location=place.get("ort", ""), country="de",
             posted_date=_date(r.get("datumErsteVeroeffentlichung")),
             # The board leaves the home-office flag out unless home office is offered.
             work_mode="hybrid" if home is True else "onsite",

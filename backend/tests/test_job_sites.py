@@ -148,6 +148,7 @@ def test_the_german_federal_job_board_gives_fresh_jobs_with_their_full_text(clie
             assert request.url.params["veroeffentlichtseit"] == "5"
             rows = [{"referenznummer": "1-A-S", "stellenangebotsTitel": "Softwareentwickler C# (m/w/d)",
                      "firma": "Acme GmbH", "datumErsteVeroeffentlichung": "2026-11-14",
+                     "externeURL": "https://www.persy.jobs/persy/l/job-abc",
                      "stellenlokationen": [{"adresse": {"ort": "Berlin"}}], "verguetungsangabe": "JAHRESGEHALT",
                      "gehaltsspanneVon": 60000.0, "gehaltsspanneBis": 70000.0, "vertragsdauer": "UNBEFRISTET"},
                     {"referenznummer": "2-B-S", "stellenangebotsTitel": "Lagerhelfer", "firma": "Kisten AG",
@@ -163,7 +164,9 @@ def test_the_german_federal_job_board_gives_fresh_jobs_with_their_full_text(clie
     assert len(out) == 1  # the warehouse job does not mention the keywords; the C# job came twice but counts once
     job = out[0]
     assert (job.source, job.source_id, job.company, job.location, job.country) == ("arbeitsagentur", "1-A-S", "Acme GmbH", "Berlin", "de")
+    # The link is always the federal board's page (opens from anywhere); a regional site's ad is only a note.
     assert job.url == "https://www.arbeitsagentur.de/jobsuche/jobdetail/1-A-S" and job.description.startswith("Wir entwickeln")
+    assert job.description.endswith("Original ad: https://www.persy.jobs/persy/l/job-abc")
     assert (job.salary_min, job.salary_max, job.contract_type, job.work_mode) == (60000.0, 70000.0, "permanent", "onsite")
     assert job.posted_date.isoformat() == "2026-11-14" and not job.is_snippet
 

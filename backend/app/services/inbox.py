@@ -191,7 +191,10 @@ def send_reply(
     if account is None:
         raise ReplyRefused("no_mail_account", "Connect your Gmail account first")
     s = get_settings()
-    to = app.recipient if s.is_production or not s.sandbox_recipient else s.sandbox_recipient
+    from app.services import live
+
+    real = s.is_production or not s.sandbox_recipient or live.sends_for_real(user.id)
+    to = app.recipient if real else s.sandbox_recipient
     subject = app.subject if app.subject.lower().startswith("re:") else f"Re: {app.subject}"
     in_reply_to = answering.rfc_message_id if answering is not None else None
     try:

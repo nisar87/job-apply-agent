@@ -13,7 +13,7 @@ type Overview = {
 type UserRow = {
   id: string; email: string; status: string; key_source: "own" | "platform" | "none"; has_own_key: boolean;
   platform_key_allowed: boolean; platform_cap_usd: number | null; cap_usd: number; daily_send_limit: number;
-  is_admin: boolean; spend_today_usd: number;
+  is_admin: boolean; spend_today_usd: number; real_sending: boolean; production: boolean;
 };
 type Platform = { key_policy: "platform" | "own" | "either"; default_cap_usd: number; platform_key_configured: boolean };
 type Health = { ok: boolean; alerts: { kind: string; detail: string }[] };
@@ -115,7 +115,7 @@ export default function Admin() {
           <h2 className="text-xl">Users</h2>
           <div className="mt-2 overflow-x-auto">
             <table className="ledger">
-              <thead><tr><th>User</th><th>Gmail</th><th>AI key</th><th>May use your key</th><th>Daily limit (US$)</th><th>Spent today</th><th>Sends a day</th><th>Sent, 24 h</th><th>Failed runs</th><th></th></tr></thead>
+              <thead><tr><th>User</th><th>Gmail</th><th>AI key</th><th>May use your key</th><th>Daily limit (US$)</th><th>Spent today</th><th>Sends a day</th><th>Sent, 24 h</th><th>Failed runs</th><th title="On the test site applications go to the sandbox inbox unless this is ticked">Real sending</th><th></th></tr></thead>
               <tbody>
                 {users.data.map((u) => {
                   const o = extra[u.id];
@@ -142,6 +142,13 @@ export default function Admin() {
                         onBlur={(e) => { const v = Number(e.target.value); if (v !== u.daily_send_limit) patchUser(u.id, { daily_send_limit: v }); }} /></td>
                       <td>{o?.sent_24h ?? 0}</td>
                       <td>{o?.failed_runs_24h ?? 0}</td>
+                      <td>{u.production ? <span className="text-xs text-slate">always</span> : (
+                        <input type="checkbox" aria-label={`Send ${u.email}'s applications to real employers`} checked={u.real_sending}
+                          onChange={(e) => {
+                            if (e.target.checked && !window.confirm(`Send ${u.email}'s approved applications to the real employers? Until now they went to the sandbox inbox.`)) return;
+                            patchUser(u.id, { real_sending: e.target.checked });
+                          }} />
+                      )}</td>
                       <td className="whitespace-nowrap"><button className="btn btn-quiet" onClick={() => act(() => api(`/api/operator/users/${u.id}/status?status=${u.status === "active" ? "paused" : "active"}`, { method: "POST" }), users.reload, overview.reload)}>
                         {u.status === "active" ? "Pause" : "Resume"}</button>
                         <button className="btn btn-quiet ml-1" title="A one-time link to choose a new password, valid for an hour"

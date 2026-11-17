@@ -20,6 +20,7 @@ from app.config import get_settings
 from app.db import system_session
 from app.llm import access
 from app.models import Application, AuditLog, Company, Posting, UsageDaily, User
+from app.services import live
 
 router = APIRouter(prefix="/api", tags=["admin"])
 
@@ -124,6 +125,7 @@ class UserLimitsIn(BaseModel):
     use_default_cap: bool = False
     daily_send_limit: int | None = Field(default=None, ge=0, le=100)
     is_operator: bool | None = None
+    real_sending: bool | None = None  # test site only: this user's applications reach employers
 
 
 @router.patch("/operator/users/{target}")
@@ -144,6 +146,10 @@ def set_user_limits(target: uuid.UUID, body: UserLimitsIn, me: uuid.UUID = Depen
             if target == me and not body.is_operator:
                 raise HTTPException(422, "You cannot remove your own admin access")
             user.is_operator = body.is_operator
+        if body.real_sending is not None:
+            live.set_real(user.id, body.real_sending)
+            audit.record(s, user_id=user.id, actor="operator", tool="real_sending",
+                         input={"on": body.real_sending, "by": str(me)})
         s.flush()
         return _user_row(s, user, access.platform_settings(), {})
 
@@ -199,6 +205,7 @@ def _user_row(s: Session, u: User, settings: dict, spend: dict) -> dict:
         "cap_usd": access.cap_for(u, settings), "daily_send_limit": u.daily_send_limit,
         "is_admin": u.is_operator or get_settings().is_admin_email(u.email),
         "spend_today_usd": round(float(spend.get(u.id, 0.0)), 4),
+        "real_sending": live.sends_for_real(u.id), "production": get_settings().is_production,
     }
 
 

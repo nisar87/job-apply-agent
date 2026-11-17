@@ -235,11 +235,13 @@ def mail_account(session: Session, user_id: uuid.UUID) -> MailAccount | None:
     ).scalars().first()
 
 
-def _recipient_for_environment(real: str) -> str:
-    """Outside production every application goes to the sandbox address. With the real
-    Gmail provider and no sandbox address configured, sending is refused outright."""
+def _recipient_for_environment(real: str, user_id: uuid.UUID | None = None) -> str:
+    """Outside production every application goes to the sandbox address, except for users the admin switched
+    to real sending. With the real Gmail provider and no sandbox address configured, sending is refused."""
+    from app.services import live
+
     s = get_settings()
-    if s.is_production:
+    if s.is_production or live.sends_for_real(user_id):
         return real
     if s.sandbox_recipient:
         return s.sandbox_recipient
@@ -288,7 +290,7 @@ def send(session: Session, app: Application, now: datetime | None = None, *, run
     account = mail_account(session, user.id)
     if account is None:
         raise rules.RuleViolation("no_mail_account", "Connect your Gmail account first", retry_later=True)
-    recipient = _recipient_for_environment(app.recipient)
+    recipient = _recipient_for_environment(app.recipient, user.id)
     attachments = [Attachment(name=a["name"], data=storage.load(a["key"])) for a in (app.attachments or [])]
     # Mark as sending and commit before the provider call: a crash after this point can
     # never lead to a second send.

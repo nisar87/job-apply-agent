@@ -37,6 +37,9 @@ NOT_EMPLOYER = (
     "germantechjobs", "rozee", "persy.jobs", "yourfirm", "jobexport", "helixjobs", "softgarden", "onlyfy",
     "jobvite", "myworkdayjobs", "workday", "successfactors", "icims", "bamboohr", "breezy", "google", "kununu",
     "instaffo", "jobware", "stellenanzeigen", "kimeta", "jooble", "careerjet", "efinancialcareers", "dice.com",
+    "dailyremote", "free-work", "builtin.com", "careerbuilder", "ziprecruiter", "simplyhired", "talent.com",
+    "jobsora", "jobrapido", "landing.jobs", "berlinstartupjobs", "nodesk", "flexjobs", "otta.com",
+    "hiringcafe", "hiring.cafe", "jobgether", "remoterocketship", "joblyst", "jobmetasearch", "haystackapp",
     "wellfound", "angel.co", "ycombinator", "commoncrawl", "youtube", "facebook", "instagram", "twitter", "x.com", "github.com", "wikipedia",
 )
 

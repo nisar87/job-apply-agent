@@ -196,10 +196,11 @@ def test_web_search_finds_jobs_like_a_chat_assistant_and_drops_made_up_links(cli
         ("Remote C# Engineer", "https://jobs.acme.io/42", None, "remote"),
     ]  # the Ghost AG link was not among the pages Google returned; Google's own page is not a posting
     assert out[0].posted_date.isoformat() == "2026-11-15" and out[0].is_snippet
-    assert len(asked) == 3 and "Germany" in asked[0] and "visa sponsorship" in asked[1] and "Pakistan" in asked[2]
+    assert len(asked) == 4 and "Germany" in asked[0] and "visa sponsorship" in asked[1] and "Pakistan" in asked[2]
+    assert "email their CV" in asked[3] and "Germany" in asked[3]   # ads that can be applied to by email
     # The same day the answers are reused: no second round of searches.
     WebSearchSource().search(q, llm=llm)
-    assert len(asked) == 3
+    assert len(asked) == 4
     assert WebSearchSource().search(q) == []  # no model, nothing to search with
     assert registered_site("https://a.b.example.co.uk/x") == "example.co.uk" and registered_site("stepstone.de") == "stepstone.de"
     assert WebSearchSource.is_posting_link("https://www.rozee.pk/acme-net-developer-jobs-1234")

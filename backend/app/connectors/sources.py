@@ -656,6 +656,12 @@ class WebSearchSource:
             open_to = f"that accept candidates living in {home}" if home else "open to candidates worldwide"
             out.append((f"fully remote {skills} developer job postings published in the last {days} days {open_to}",
                         "remote"))
+        # Ads that give an address to send the CV to: these can be applied to straight away by email, which is
+        # what gets applications out every day (most worldwide boards only have web forms).
+        where = country_name(query.country) if query.country else ("remote, worldwide" if query.remote_ok else "")
+        if where:
+            out.append((f"{skills} developer job postings ({where}) published in the last {days} days that ask "
+                        "applicants to email their CV to an address given in the ad", "email"))
         return out
 
     def _ask(self, llm, plan: str) -> tuple[str, list[dict]]:

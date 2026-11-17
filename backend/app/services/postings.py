@@ -104,6 +104,10 @@ def validate_contact(email: str | None, text: str, mail_check=None) -> str | Non
     local = email.split("@", 1)[0]
     if any(bad in local for bad in _BAD_LOCAL):
         return None
+    from app.services.contacts import is_employer_site
+
+    if not is_employer_site(domain_of(email)):
+        return None  # a job board's or hiring system's own address (contact@dailyremote.com), not the employer's
     check = mail_check or domain_accepts_mail
     return email if check(domain_of(email)) else None
 

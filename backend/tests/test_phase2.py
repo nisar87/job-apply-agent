@@ -328,7 +328,7 @@ def test_stats_digest_and_sync_endpoint(client, llm):
     stats = client.get("/api/stats/daily?days=7", headers=w.headers).json()
     assert len(stats) == 8 and sum(d["sent"] for d in stats) >= 0
     with w.session() as s:
-        d = digest.send_for_user(s, w.user_id)
+        d = digest.send_for_user(s, w.user_id, NOW + timedelta(hours=1))  # the week up to the test's fixed clock
         assert d["applied"] == 1
         assert s.execute(select(Notification).where(Notification.kind == "digest")).scalar_one()
     assert "handled" in client.post("/api/inbox/sync", headers=w.headers).json()

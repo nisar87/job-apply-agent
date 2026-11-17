@@ -1,6 +1,6 @@
 """The agent loop, the fixed playbook, discovery, dispatch and the setup chat."""
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
@@ -165,6 +165,10 @@ def test_full_flow_review_mode(client, llm):
     detail = client.get(f"/api/applications/{drafts[0]['id']}", headers=w.headers).json()
     assert detail["application"]["status"] == "sent" and detail["match"]["rubric"]["requirements"]
     assert any(t["tool"] == "send_application" for t in detail["timeline"])
+    # The dashboard counts the last seven days from the real clock; the sends above happened at the fixed NOW.
+    with w.session() as s:
+        for a in s.execute(select(Application).where(Application.status == "sent")).scalars():
+            a.sent_at = datetime.now(UTC) - (NOW - a.sent_at) - timedelta(hours=1)
     dash = client.get("/api/dashboard", headers=w.headers).json()
     assert dash["today"]["manual_apply"] == 1 and dash["week"]["applied"] == 2
 

@@ -153,6 +153,9 @@ class CampaignIn(BaseModel):
     config: dict = Field(default_factory=dict)
     preferences: list[str] = Field(default_factory=list)
     state: str = "paused"
+    # Automatic by default: every draft passes the code checks, the fact check and the hiring-manager review
+    # (services/writing.py) before it is queued, and the daily report shows what went out.
+    approval_mode: str = "full_auto"
 
 
 class CampaignPatch(BaseModel):
@@ -180,8 +183,11 @@ def list_campaigns(user_id: uuid.UUID = Depends(current_user_id), session: Sessi
 def create_campaign(body: CampaignIn, user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
     if body.state not in ("active", "paused", "dry_run"):
         raise HTTPException(422, "Unknown state")
+    if body.approval_mode not in ("review", "auto_above", "full_auto"):
+        raise HTTPException(422, "Unknown approval mode")
     try:
-        campaign = campaign_service.create_campaign(session, user_id, body.name, _validated(body.config), state=body.state)
+        campaign = campaign_service.create_campaign(session, user_id, body.name, _validated(body.config), state=body.state,
+                                                    approval_mode=body.approval_mode)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     for text in body.preferences[:20]:

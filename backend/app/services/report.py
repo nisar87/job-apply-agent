@@ -28,6 +28,7 @@ SOURCE_NAMES = {
     "workablesearch": "Workable job search", "websearch": "Google search", "adzuna": "Adzuna", "greenhouse": "Greenhouse",
     "lever": "Lever", "ashby": "Ashby", "workable": "Workable", "smartrecruiters": "SmartRecruiters",
     "recruitee": "Recruitee", "personio": "Personio", "teamtailor": "Teamtailor", "link": "a link you added",
+    "user_link": "a link you added",
     "manual": "a link you added",
 }
 

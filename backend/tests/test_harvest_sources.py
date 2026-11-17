@@ -9,17 +9,21 @@ import httpx
 from sqlalchemy import select
 
 from app.connectors.sources import (
+    BerlinStartupJobsSource,
     CommonCrawlSource,
     HackerNewsSource,
     HarvestQuery,
+    LandingJobsSource,
     LeverSource,
+    RawPosting,
+    SearchQuery,
     WorkableSearchSource,
     WorkableSource,
     set_sources,
 )
 from app.db import system_session
 from app.models import JobSite, PoolJob
-from app.services import contacts, harvest, sites
+from app.services import contacts, harvest, pool, sites
 from app.tasks.locks import get_redis
 from tests.helpers import make_world
 
@@ -96,6 +100,9 @@ def test_workable_search_pools_jobs_with_the_company_website_and_learns_their_bo
         asked.append(request)
         p = request.url.params
         if request.url.host == "jobs.workable.com":
+            if p["query"] in ("python visa sponsorship", "python relocation"):
+                assert "location" not in p and "workplace" not in p  # anywhere in the world
+                return httpx.Response(200, json={"jobs": []})
             assert p["query"] == "python"
             if p.get("workplace") == "remote":
                 return httpx.Response(200, json={"jobs": [
@@ -134,6 +141,91 @@ def test_workable_search_pools_jobs_with_the_company_website_and_learns_their_bo
     # Both companies' Workable boards were learned and read in the same run.
     assert set(boards) == {"gamma", "delta"} and all(b.last_checked_at for b in boards.values())
     assert {"gamma:A1", "delta:A1"} <= set(rows) and out["boards_checked"] == 2
+    asked_for = {r.url.params["query"] for r in asked if r.url.host == "jobs.workable.com"}
+    assert asked_for == {"python", "python visa sponsorship", "python relocation"}
+
+
+GERMAN = "Wir suchen einen Entwickler fuer unser Team und die Arbeit mit der Plattform ist sehr wichtig fuer uns und das Projekt."
+ENGLISH = "We are looking for an engineer to join our team and you will work with the platform and the people in it."
+
+
+def _pooled(title, ref, text, **kw):
+    return RawPosting(source="remotive", source_id=ref, url=f"https://example.com/{ref}", title=title, company=f"Co {ref}",
+                      description=text, posted_date=date.today() - timedelta(days=kw.pop("days_old", 1)), **kw)
+
+
+def test_the_pool_leaves_out_jobs_in_languages_the_user_does_not_read(client, llm):
+    w = make_world(client, llm)
+    with w.session() as s:
+        pool.store(s, [_pooled("Python Engineer", "de", GERMAN, country="at"),
+                       _pooled("Python Engineer", "en", ENGLISH, country="at"),
+                       _pooled("Python Engineer", "short", "Python, Kubernetes.", country="at")], set())
+        q = dict(keywords=["engineer"], countries=["at"])
+        english = {r.source_id for r in pool.PoolSource().search(SearchQuery(**q, languages=["en"]), session=s)}
+        anything = {r.source_id for r in pool.PoolSource().search(SearchQuery(**q), session=s)}
+    assert english == {"en", "short"}  # too short to tell: kept for the agent to judge
+    assert anything == {"de", "en", "short"}
+
+
+def test_the_pool_ranks_email_first_then_jobs_open_to_applicants_from_abroad(client, llm):
+    def raw_(text="Build APIs.", **kw):
+        return _pooled("Engineer", "x", text, **kw)
+
+    assert pool.welcomes_abroad(raw_("We offer visa sponsorship and a relocation package."), "pk")
+    assert pool.welcomes_abroad(raw_("Work from anywhere in the world."), "pk")
+    assert pool.welcomes_abroad(raw_(work_mode="remote"), "pk")                      # remote, no limit stated
+    assert pool.welcomes_abroad(raw_(work_mode="remote", hiring_regions=["Pakistan"]), "pk")
+    assert not pool.welcomes_abroad(raw_(work_mode="remote", hiring_regions=["Europe"]), "pk")
+    assert not pool.welcomes_abroad(raw_(country="de", work_mode="onsite"), "pk")
+    w = make_world(client, llm)
+    with w.session() as s:
+        pool.store(s, [_pooled("Engineer Local New", "local", "Office in Vienna.", country="at", days_old=1),
+                       _pooled("Engineer Visa Old", "visa", "We sponsor visas.", country="at", days_old=3),
+                       _pooled("Engineer Visa New", "visa2", "Visa sponsorship available.", country="at", days_old=2),
+                       _pooled("Engineer Mail Old", "mail", "Write to jobs@mail.example", country="at", days_old=5)], set())
+        found = [r.source_id for r in pool.PoolSource().search(
+            SearchQuery(keywords=["engineer"], countries=["at"], home_country="pk"), session=s)]
+    assert found == ["mail", "visa2", "visa", "local"]
+
+
+def test_landing_jobs_and_berlin_startup_jobs_feed_the_pool():
+    old, new = (date.today() - timedelta(days=30)).isoformat(), (date.today() - timedelta(days=1)).isoformat()
+    asked = []
+
+    def handler(request):
+        asked.append(str(request.url))
+        if request.url.host == "landing.jobs":
+            # The real shape (recorded 2026-11-17): no company name, the place in `locations`, ads published long
+            # ago but refreshed while open, and an expiry date.
+            offset = int(request.url.params["offset"])
+            rows = [{"id": 1, "title": "Backend Engineer", "remote": False, "relocation_paid": True,
+                     "locations": [{"city": "Lisbon", "country_code": "PT"}], "published_at": f"{old}T10:00:00Z",
+                     "updated_at": f"{new}T10:00:00Z", "expires_at": "2099-01-01",
+                     "url": "https://landing.jobs/at/lisbon-labs/backend-engineer",
+                     "role_description": "<p>Ruby and Go.</p>", "gross_salary_low": 40000, "gross_salary_high": 60000}]
+            rows += [{"id": 100 + i, "title": "Stale Job", "updated_at": f"{old}T10:00:00Z", "expires_at": "2099-01-01",
+                      "url": "https://landing.jobs/at/old-co/stale-job"} for i in range(48)]
+            rows += [{"id": 999, "title": "Expired Job", "updated_at": f"{new}T10:00:00Z", "expires_at": old,
+                      "url": "https://landing.jobs/at/gone/expired-job"}]
+            return httpx.Response(200, json=rows if offset == 0 else rows[1:3])
+        return httpx.Response(200, text=(
+            '<rss xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><item>'
+            "<title>Senior Go Developer // Kiez GmbH</title><link>https://berlinstartupjobs.com/engineering/go-dev/</link>"
+            f"<pubDate>{date.today().strftime('%a, %d %b %Y')} 08:00:00 +0000</pubDate><guid>bsj-1</guid>"
+            "<content:encoded>&lt;p&gt;English-speaking team. Relocation support.&lt;/p&gt;</content:encoded>"
+            "</item></channel></rss>"))
+
+    landing = LandingJobsSource(mock(handler)).harvest(HarvestQuery())
+    # Not refreshed for a month, or past its expiry: left out. The list is not in date order, so every page is read
+    # until a short one.
+    assert [p.source_id for p in landing] == ["1"] and sum("offset=" in u for u in asked) == 2
+    job = landing[0]
+    assert (job.company, job.location, job.country, job.salary_min) == ("Lisbon Labs", "Lisbon, Portugal", "pt", 40000)
+    assert job.posted_date == date.today() - timedelta(days=1)
+    assert "relocation package" in job.description and pool.welcomes_abroad(job, "pk")
+    bsj = BerlinStartupJobsSource(mock(handler)).harvest(HarvestQuery())
+    assert [(p.title, p.company, p.country, p.posted_date) for p in bsj] == [("Senior Go Developer", "Kiez GmbH", "de", date.today())]
+    assert "English-speaking team" in bsj[0].description
 
 
 def test_common_crawl_finds_company_boards_a_slice_per_run(client, llm):

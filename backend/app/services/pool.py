@@ -187,7 +187,10 @@ class PoolSource:
         if words:  # a rough database filter first; the exact whole-word check follows below
             stmt = stmt.where(or_(*[c.ilike(_like(w), escape="\\") for w in words for c in (PoolJob.title, PoolJob.description)]))
         stmt = stmt.order_by(PoolJob.posted_date.desc().nulls_last(), PoolJob.first_seen.desc()).limit(self.SCAN)
+        from app.services.writing import detect_language
+
         companies, domains, addresses = _blocked(session)
+        languages = {x.lower() for x in query.languages}
         out = []
         for row in session.execute(stmt).scalars():
             if not matches_keywords(f"{row.title} {row.description}", query.keywords):
@@ -199,6 +202,10 @@ class PoolSource:
             email = (row.contact_email or "").lower()
             if email and (email in addresses or registered_domain(domain_of(email)) in domains):
                 continue
+            if languages:
+                lang = detect_language(f"{row.title}\n{(row.description or '')[:3000]}")
+                if lang and lang not in languages:
+                    continue  # written in a language the user does not accept (undetected ones are kept)
             out.append(RawPosting(
                 source=row.source, source_id=row.source_id[:255], url=row.url, title=row.title, company=row.company,
                 description=row.description, location=row.location, country=row.country, posted_date=row.posted_date,
@@ -206,9 +213,31 @@ class PoolSource:
                 work_mode=row.work_mode, is_snippet=row.is_snippet or not row.description,
                 contact_email=row.contact_email, hiring_regions=row.hiring_regions,
             ))
-        # Jobs that give an address to write to come first: they can be applied to directly by email, which works
-        # far more often than a web form. Within each group the newest first (the query's order, kept by sort).
-        from app.services.postings import EMAIL_RE
-
-        out.sort(key=lambda r: 0 if (r.contact_email or EMAIL_RE.search(r.description or "")) else 1)
+        # Newest first within each group (the query's order, kept by the stable sort).
+        out.sort(key=lambda r: rank(r, query.home_country))
         return out[:self.LIMIT]
+
+
+_WELCOMES = re.compile(
+    r"visa sponsorship|sponsor(?:s|ing)? (?:a |your |work )?visas?|we sponsor|visa support|relocation|relocate|"
+    r"work from anywhere|anywhere in the world|worldwide|open to candidates from any country|"
+    r"(?:candidates|applicants) from (?:any|all) countr", re.IGNORECASE)
+
+
+def welcomes_abroad(raw: RawPosting, home: str = "") -> bool:
+    """Whether a job says it takes people from other countries: it sponsors visas or pays relocation, hires
+    worldwide, explicitly hires from the candidate's country, or is remote without any limit on where from."""
+    if _WELCOMES.search(f"{raw.title}\n{raw.description or ''}"):
+        return True
+    if raw.hiring_regions and home and hiring_allows(raw.hiring_regions, home) is True:
+        return True
+    return raw.work_mode == "remote" and not raw.hiring_regions
+
+
+def rank(raw: RawPosting, home: str = "") -> tuple[int, int]:
+    """Sort key: jobs with an address to write to first (they can be applied to by email, which works far more
+    often than a web form), then jobs open to applicants from abroad, then the rest."""
+    from app.services.postings import EMAIL_RE
+
+    has_email = bool(raw.contact_email or EMAIL_RE.search(raw.description or ""))
+    return (0 if has_email else 1, 0 if welcomes_abroad(raw, home) else 1)

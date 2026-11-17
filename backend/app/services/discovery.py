@@ -82,7 +82,8 @@ def discover(session: Session, llm: LLMClient, campaign: Campaign, *, fetcher: F
                           max_days_old=config.max_posting_age_days, home_country=home,
                           remote_ok=bool(config.remote_outside_countries or not config.countries)
                           and (not config.work_modes or "remote" in config.work_modes),
-                          work_modes=list(config.work_modes), countries=list(config.countries))
+                          work_modes=list(config.work_modes), countries=list(config.countries),
+                          languages=list(config.languages))
         extra = {"llm": llm} if getattr(source, "needs_llm", False) else {}
         if getattr(source, "needs_session", False):
             extra["session"] = session

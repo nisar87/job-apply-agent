@@ -59,7 +59,8 @@ COMPANY_BOARDS_PER_RUN = 5000
 BOARD_WORKERS = 6                  # company boards fetched at once
 BOARD_CHUNK = 24                   # boards fetched between two looks at the clock
 # Sources that may take only part of the run, so the company boards still get their turn.
-SOURCE_BUDGET_SECONDS = {"arbeitsagentur": 70, "workablesearch": 50, "commoncrawl": 40, "hackernews": 30}
+SOURCE_BUDGET_SECONDS = {"arbeitsagentur": 70, "workablesearch": 50, "commoncrawl": 40, "hackernews": 30,
+                         "landingjobs": 30}
 LAST_KEY, DUE_KEY, LOCK_KEY = "harvest:last", "harvest:due", "harvest:running"
 
 # Remote OK and Working Nomads list every kind of job; the pool keeps the technical ones (judged by the title)

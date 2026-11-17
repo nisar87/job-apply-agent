@@ -29,6 +29,7 @@ class SearchQuery:
     home_country: str = ""  # where the candidate lives (ISO code), for remote jobs that hire only from some places
     work_modes: list[str] = field(default_factory=list)
     countries: list[str] = field(default_factory=list)  # all of the search's countries (the job pool uses them all)
+    languages: list[str] = field(default_factory=list)  # posting languages the user accepts; empty = any
 
 
 @dataclass
@@ -1186,6 +1187,8 @@ class WorkableSearchSource:
         for term in query.terms:
             runs = [{"query": term, "location": name_of(c)} for c in query.countries]
             runs.append({"query": term, "workplace": "remote"})
+            # Anywhere in the world, from employers who sponsor visas or pay for the move.
+            runs += [{"query": f"{term} visa sponsorship"}, {"query": f"{term} relocation"}]
             for params in runs:
                 if query.out_of_time():
                     return out
@@ -1261,12 +1264,136 @@ class CommonCrawlSource:
         return [u for u in links if u]
 
 
+class LandingJobsSource:
+    """Landing.jobs, a European tech board known for jobs that pay relocation and help with visas (public API,
+    no key). The newest jobs a page of 50 at a time until they are older than two weeks, four pages at most, each
+    page cached six hours. When the API flags relocation or visa help, it is written into the text, so the pool
+    ranks the job as open to applicants from abroad. Harvester only."""
+
+    name = "landingjobs"
+    URL = "https://landing.jobs/api/v1/jobs"   # www. answers with a redirect
+    PER_PAGE = 50
+    PAGES = 8
+
+    def __init__(self, http: httpx.Client | None = None, clock=None):
+        self.http = http or httpx.Client(timeout=30, follow_redirects=True, headers={"User-Agent": "JobApplyAgent/0.1"})
+        self.clock = clock or (lambda: datetime.now(UTC))
+
+    def search(self, query: SearchQuery) -> list[RawPosting]:
+        return []  # read by the harvester only
+
+    def _company(self, r: dict, query: HarvestQuery) -> str:
+        company = r.get("company") if isinstance(r.get("company"), dict) else {}
+        name = r.get("company_name") or company.get("name") or ""
+        if not name:
+            # The job list does not name the company; its link does: landing.jobs/at/{company}/{job}.
+            m = re.search(r"landing\.jobs/at/([^/]+)/", r.get("url") or "")
+            name = m.group(1).replace("-", " ").title() if m else ""
+        return name
+
+    def _posting(self, r: dict, query: HarvestQuery) -> RawPosting | None:
+        if not r.get("id") or not r.get("title"):
+            return None
+        parts = [html_to_text(r.get(k) or "") for k in ("role_description", "description", "main_requirements",
+                                                         "nice_to_have", "perks")]
+        notes = []
+        if r.get("relocation_paid") or r.get("relocation"):
+            notes.append("Relocation: the employer pays relocation (relocation package).")
+        if r.get("visa_support") or r.get("visa_sponsorship"):
+            notes.append("Visa: the employer offers visa sponsorship.")
+        remote = bool(r.get("remote")) or str(r.get("work_mode") or "").lower() == "remote"
+        place = (r.get("locations") or [{}])[0] if isinstance(r.get("locations"), list) else {}
+        city = r.get("city") or (place or {}).get("city") or ""
+        country = r.get("country_name") or r.get("country") or ""
+        code = str(r.get("country_code") or (place or {}).get("country_code") or "").lower() or None
+        if not country and code:
+            from app.countries import name_of
+
+            country = name_of(code)
+        low, high = r.get("salary_low") or r.get("gross_salary_low"), r.get("salary_high") or r.get("gross_salary_high")
+        text = "\n\n".join([p for p in parts if p] + notes)
+        return RawPosting(
+            source=self.name, source_id=str(r["id"]), title=r["title"], company=self._company(r, query),
+            url=r.get("url") or r.get("share_url") or f"https://www.landing.jobs/job/{r['id']}",
+            description=text, location=", ".join(x for x in (city, country) if x), country=code,
+            # Ads stay open for months and are refreshed while open (published 2025, updated last week, expiring
+            # 2027), so the last update is the date that says whether it is still active.
+            posted_date=_date(r.get("updated_at") or r.get("published_at") or r.get("created_at")),
+            work_mode="remote" if remote else None,
+            salary_min=low if isinstance(low, int | float) else None, salary_max=high if isinstance(high, int | float) else None,
+            contract_type=r.get("type") or None, is_snippet=not any(parts),
+        )
+
+    def harvest(self, query: HarvestQuery) -> list[RawPosting]:
+        since = self.clock().date() - timedelta(days=query.max_days_old)
+        out = []
+        for page in range(self.PAGES):
+            if query.out_of_time():
+                break
+            data = _cached_json(self.http, self.URL, 6 * 3600, limit=self.PER_PAGE, offset=page * self.PER_PAGE)
+            rows = data if isinstance(data, list) else (data.get("jobs") or data.get("data") or [])
+            live = [r for r in rows if isinstance(r, dict) and not _expired(r.get("expires_at"), self.clock().date())]
+            got = [p for p in (self._posting(r, query) for r in live) if p]
+            out += [p for p in got if p.posted_date is None or p.posted_date >= since]
+            if len(rows) < self.PER_PAGE:  # the list is not in date order, so every page is read (up to PAGES)
+                break
+        return out
+
+
+def _expired(value, today: date) -> bool:
+    d = _date(value)
+    return d is not None and d < today
+
+
+class BerlinStartupJobsSource:
+    """Berlin Startup Jobs' engineering feed (RSS): English-speaking Berlin startups, many of them hiring from
+    abroad. Item titles read "Role // Company". Fetched at most every six hours. Harvester only."""
+
+    name = "berlinstartupjobs"
+    FEED = "https://berlinstartupjobs.com/engineering/feed/"
+
+    def __init__(self, http: httpx.Client | None = None):
+        self.http = http or httpx.Client(timeout=30, follow_redirects=True, headers={"User-Agent": "JobApplyAgent/0.1"})
+
+    def search(self, query: SearchQuery) -> list[RawPosting]:
+        return []  # read by the harvester only
+
+    def harvest(self, query: HarvestQuery) -> list[RawPosting]:
+        from app.tasks.locks import get_redis
+
+        key = "src:" + self.FEED
+        try:
+            text = get_redis().get(key)
+        except Exception:  # noqa: BLE001
+            text = None
+        if not text:
+            resp = self.http.get(self.FEED)
+            resp.raise_for_status()
+            text = resp.text
+            try:
+                get_redis().set(key, text, ex=6 * 3600)
+            except Exception:  # noqa: BLE001
+                pass
+        out = []
+        for r in _rss_items(text):
+            role, _, company = (r.get("title") or "").partition(" // ")
+            if not role.strip() or not r.get("link"):
+                continue
+            body = html_to_text(r.get("encoded") or r.get("description") or "")
+            out.append(RawPosting(
+                source=self.name, source_id=r.get("guid") or r["link"], url=r["link"], title=html_to_text(role).strip(),
+                company=html_to_text(company).strip(), description=body, location="Berlin, Germany", country="de",
+                posted_date=_rss_date(r.get("pubDate")),
+            ))
+        return out
+
+
 REMOTE_SOURCES = {"remotive", "jobicy", "himalayas", "weworkremotely", "remoteok", "workingnomads"}
 # Free sources the job harvester collects into the pool (no key, no per-request price, no model calls). Common
 # Crawl gives no jobs: it grows the directory of company boards, which the harvester then reads.
 HARVEST_BOARDS = ("arbeitsagentur", "arbeitnow", "remotive", "jobicy", "himalayas", "weworkremotely", "remoteok",
-                  "workingnomads", "hackernews", "workablesearch", "commoncrawl")
-HARVEST_ONLY = {"hackernews", "workablesearch", "commoncrawl"}
+                  "workingnomads", "hackernews", "workablesearch", "landingjobs", "berlinstartupjobs", "commoncrawl")
+HARVEST_ONLY = {"hackernews", "workablesearch", "landingjobs", "berlinstartupjobs", "commoncrawl"}
 COMPANY_FEED_SOURCES = {"greenhouse", "lever", "personio", "ashby", "workable", "smartrecruiters", "recruitee",
                         "teamtailor"}
 _registry: dict[str, JobSource] | None = None
@@ -1288,7 +1415,8 @@ def get_sources() -> dict[str, JobSource]:
                                 RemotiveSource(), JobicySource(), HimalayasSource(), WeWorkRemotelySource(),
                                 RemoteOkSource(), WorkingNomadsSource(), AshbySource(), WorkableSource(),
                                 SmartRecruitersSource(), RecruiteeSource(), TeamtailorSource(),
-                                HackerNewsSource(), WorkableSearchSource(), CommonCrawlSource())
+                                HackerNewsSource(), WorkableSearchSource(), LandingJobsSource(),
+                                BerlinStartupJobsSource(), CommonCrawlSource())
         }
         if get_settings().llm_provider == "fake":
             _registry = {"demo": FakeSource(demo_postings())}

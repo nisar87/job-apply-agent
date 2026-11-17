@@ -30,6 +30,32 @@ def rate_limit(key: str, limit: int, window_seconds: int) -> None:
         raise HTTPException(429, "Too many attempts. Try again later.")
 
 
+@router.get("/report/preview")
+def report_preview(user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
+    """The report as it would be sent now, covering the last day (or week, for weekly reports)."""
+    from app.services import report
+
+    user = session.get(User, user_id)
+    now = datetime.now(UTC)
+    days = 7 if user.report_frequency == "weekly" else 1
+    subject, body = report.render(user, report.build(session, user, now - timedelta(days=days), now),
+                                  "weekly" if days == 7 else "daily")
+    return {"to": report.address_of(user), "subject": subject, "body": body}
+
+
+@router.post("/report/send-now")
+def report_send_now(user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
+    """Emails the report of the last day to the user's main address now."""
+    from app.services import report
+
+    rate_limit(f"rl:report:{user_id}", 5, 3600)
+    user = session.get(User, user_id)
+    now = datetime.now(UTC)
+    if not report.send(session, user, now, since=now - timedelta(days=1)):
+        raise HTTPException(503, "The report could not be emailed. Check that your job Gmail is connected.")
+    return {"sent_to": report.address_of(user)}
+
+
 @router.get("/account/export")
 def export(user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
     return account_service.export_data(session, user_id)

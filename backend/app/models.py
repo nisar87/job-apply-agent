@@ -64,7 +64,10 @@ class User(Base, TimestampMixin):
     platform_key_allowed: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     platform_cap_usd: Mapped[float | None] = mapped_column(Float, nullable=True)  # set by the admin; None = default
     own_key_cap_usd: Mapped[float | None] = mapped_column(Float, nullable=True)   # set by the user; None = no cap
+    # The user's main address: reports, urgent replies and account notices go here, never to the job Gmail.
     escalation_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    report_frequency: Mapped[str] = mapped_column(String(8), default="daily", server_default="daily")  # daily|weekly|off
+    report_hour: Mapped[int] = mapped_column(Integer, default=20, server_default="20")  # local hour it is sent
     style_guide: Mapped[str] = mapped_column(Text, default="")
     sample_emails: Mapped[list] = mapped_column(JsonType, default=list)
 

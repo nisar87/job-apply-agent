@@ -111,6 +111,12 @@ def inbox_user(user_id: uuid.UUID, now: datetime | None = None) -> dict:
 def tick(now: datetime | None = None) -> dict:
     now = now or datetime.now(UTC)
     summary = {"users": 0, "sent": 0}
+    from app.services import report
+
+    try:  # reports go out even while sending is paused: they tell the user what happened
+        summary["reports"] = report.send_due(now)
+    except Exception:  # noqa: BLE001
+        log.exception("reports failed")
     if get_redis().get("global_pause"):
         return {**summary, "paused": True}
     from app.services import harvest

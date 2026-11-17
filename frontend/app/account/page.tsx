@@ -3,6 +3,7 @@
 import { useState } from "react";
 import ChangePassword from "@/components/ChangePassword";
 import JobGmail from "@/components/JobGmail";
+import MainEmail from "@/components/MainEmail";
 import ModelKey from "@/components/ModelKey";
 import Shell from "@/components/Shell";
 import { ErrorNote, errorText, useLoad } from "@/components/ui";
@@ -49,6 +50,8 @@ export default function AccountPage() {
       <ErrorNote message={error || me.error} />
       <JobGmail />
 
+      <MainEmail />
+
       <ModelKey />
 
       <h2 className="mt-10 text-xl">About you</h2>
@@ -56,9 +59,6 @@ export default function AccountPage() {
         <div className="mt-3 grid gap-4 md:grid-cols-2">
           <label className="text-sm">Name on your emails<input className="field mt-1" value={m.name || ""} onChange={(e) => setEdits({ ...edits, name: e.target.value })} /></label>
           <label className="text-sm">Time zone<input className="field mt-1" value={m.timezone || ""} onChange={(e) => setEdits({ ...edits, timezone: e.target.value })} /></label>
-          <label className="text-sm md:col-span-2">Send urgent replies (interviews, offers) to
-            <input className="field mt-1" type="email" value={m.escalation_email || ""} onChange={(e) => setEdits({ ...edits, escalation_email: e.target.value })} />
-          </label>
           <label className="text-sm md:col-span-2">How you write
             <span className="block text-xs text-slate">For example: direct and polite, short sentences, no buzzwords.</span>
             <textarea className="field mt-1 min-h-24" value={m.style_guide || ""} onChange={(e) => setEdits({ ...edits, style_guide: e.target.value })} />

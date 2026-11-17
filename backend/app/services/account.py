@@ -84,7 +84,7 @@ def _send_from_own_mailbox(session: Session, user: User, to: str, subject: str, 
     try:
         get_mail_provider().send(account, OutgoingMail(to=to, subject=f"[Job Apply Agent] {subject}", body=body,
                                                        from_name="Job Apply Agent"))
-    except (MailAuthError, httpx.HTTPError) as exc:
+    except (MailAuthError, httpx.HTTPError, OSError) as exc:  # OSError covers SMTP and IMAP failures
         log.warning("notice from own mailbox failed: %s", type(exc).__name__)
         return False
     return True

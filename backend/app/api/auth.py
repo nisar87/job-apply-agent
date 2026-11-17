@@ -6,6 +6,7 @@ touching the rest of the application.
 """
 
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
@@ -55,6 +56,8 @@ class UserOut(BaseModel):
     timezone: str
     plan: str
     escalation_email: str | None
+    report_frequency: str = "daily"
+    report_hour: int = 20
     style_guide: str
     sample_emails: list
     is_admin: bool = False
@@ -70,6 +73,8 @@ class UserPatch(BaseModel):
     name: str | None = Field(default=None, max_length=200)
     timezone: str | None = None
     escalation_email: EmailStr | None = None
+    report_frequency: Literal["daily", "weekly", "off"] | None = None
+    report_hour: int | None = Field(default=None, ge=0, le=23)
     style_guide: str | None = Field(default=None, max_length=5000)
     sample_emails: list[str] | None = Field(default=None, max_length=3)
 

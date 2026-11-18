@@ -15,12 +15,13 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.models import Application, Company, Match, Message, Posting, User
+from app.models import Application, Campaign, Company, Match, Message, PoolJob, Posting, User
 from app.services import rules
 
 log = logging.getLogger(__name__)
 
 FREQUENCIES = ("daily", "weekly", "off")
+DAILY_TARGET = 5  # applications a day the agent works towards; lower if the user's searches allow fewer
 SOURCE_NAMES = {
     "arbeitsagentur": "German federal job board", "arbeitnow": "Arbeitnow", "remotive": "Remotive", "jobicy": "Jobicy",
     "himalayas": "Himalayas", "weworkremotely": "We Work Remotely", "remoteok": "Remote OK",
@@ -56,6 +57,56 @@ def where_from(posting: Posting, app: Application) -> str:
     return "given by the job source"
 
 
+def target_per_day(session: Session, user: User) -> int:
+    """How many applications a day the user wants: their searches' daily quotas, at most DAILY_TARGET."""
+    from app.services.campaigns import get_config
+
+    active = session.execute(select(Campaign).where(Campaign.user_id == user.id, Campaign.state == "active")).scalars()
+    quota = sum(get_config(c).daily_quota for c in active)
+    return min(quota, DAILY_TARGET) if quota else DAILY_TARGET
+
+
+def funnel(session: Session, user: User, since: datetime, now: datetime) -> dict:
+    """Each step from new jobs to emails sent in the period, and the step where the target was lost."""
+    def count(model, *conds) -> int:
+        return int(session.execute(select(func.count()).select_from(model).where(*conds)).scalar() or 0)
+
+    in_period = (Match.user_id == user.id, Match.created_at >= since, Match.created_at < now)
+    written = (Application.user_id == user.id, Application.route == "email", Application.created_at >= since,
+               Application.created_at < now)
+    days = max(1, round((now - since).total_seconds() / 86400))
+    f = {
+        "new_jobs": count(PoolJob, PoolJob.first_seen >= since, PoolJob.first_seen < now),
+        "checked": count(Match, *in_period),
+        "good": count(Match, *in_period, Match.decision.in_(("apply", "manual"))),
+        "with_email": count(Match, *in_period, Match.decision == "apply"),
+        "written": count(Application, *written),
+        "stopped": count(Application, *written, Application.status == "failed"),
+        "sent": count(Application, Application.user_id == user.id, Application.route == "email",
+                      Application.sent_at >= since, Application.sent_at < now),
+        "target": target_per_day(session, user) * days,
+    }
+    f["short_at"] = shortfall(f)
+    return f
+
+
+def shortfall(f: dict) -> str:
+    """In words, the first step that kept the period below its target; empty when the target was met."""
+    t = f["target"]
+    if f["sent"] >= t:
+        return ""
+    if f["good"] < t:
+        return (f"Too few good matches ({f['good']} for a target of {t}): the agent needs more matching jobs, so "
+                "more job sources or wider search terms.")
+    if f["with_email"] < t:
+        return (f"Too few good matches with an email address ({f['with_email']} of {f['good']}): most matching "
+                "jobs take applications only through a web form.")
+    if f["written"] - f["stopped"] < t:
+        return (f"Emails stopped by the quality checks: {f['stopped']} of {f['written']} did not pass.")
+    return ("Enough emails were ready, but not all went out yet: they wait for the send window, the daily "
+            "limit, or the pause between two emails to the same company.")
+
+
 def build(session: Session, user: User, since: datetime, now: datetime) -> dict:
     def rows(*conds, order=Application.updated_at.desc()):
         q = (select(Application, Posting, Company).join(Posting, Posting.id == Application.posting_id)
@@ -80,13 +131,10 @@ def build(session: Session, user: User, since: datetime, now: datetime) -> dict:
         .where(Message.user_id == user.id, Message.direction == "in", Message.received_at >= since)
         .order_by(Message.received_at)
     ).all()
-    checked = int(session.execute(select(func.count()).select_from(Match).where(
-        Match.user_id == user.id, Match.created_at >= since)).scalar() or 0)
-    good = int(session.execute(select(func.count()).select_from(Match).where(
-        Match.user_id == user.id, Match.created_at >= since, Match.decision.in_(("apply", "manual")))).scalar() or 0)
+    f = funnel(session, user, since, now)
     return {
-        "since": since, "now": now, "sent": sent, "waiting": waiting, "by_hand": by_hand, "checked": checked,
-        "good": good,
+        "since": since, "now": now, "sent": sent, "waiting": waiting, "by_hand": by_hand, "checked": f["checked"],
+        "good": f["good"], "funnel": f,
         "replies": [{"company": c.name if c else "", "subject": m.subject or a.subject, "from": m.sender or ""}
                     for m, a, c in replies],
     }
@@ -131,7 +179,16 @@ def render(user: User, d: dict, frequency: str) -> tuple[str, str]:
     lines.append(f"Replies from employers ({len(d['replies'])})")
     lines.append("-" * len(lines[-1]))
     lines.extend([f"- {r['company'] or r['from']}: {r['subject']}" for r in d["replies"]] or ["None."])
-    lines += ["", f"Jobs checked against your CV: {d['checked']}, good matches: {d['good']}.", "",
+    f = d["funnel"]
+    lines += ["", f"From new jobs to emails sent (target: {f['target']})", "-" * 40,
+              f"New jobs collected from all sources:   {f['new_jobs']}",
+              f"Checked against your CV:               {f['checked']}",
+              f"Good matches:                          {f['good']}",
+              f"  with an employer's email address:    {f['with_email']}",
+              f"Emails written:                        {f['written']}",
+              f"  stopped by the quality checks:       {f['stopped']}",
+              f"Emails sent:                           {f['sent']}",
+              "Target reached." if not f["short_at"] else f"Where it fell short: {f['short_at']}", "",
               f"Approve drafts: {base}/drafts", f"All applications: {base}/applications",
               f"Change or stop this report: {base}/account", ""]
     return subject, "\n".join(lines)

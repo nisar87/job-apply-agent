@@ -1,6 +1,6 @@
 """The report of what the agent applied to, emailed to the user's main address."""
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 from app.models import User
 from app.services import applications as app_service
@@ -24,6 +24,31 @@ def test_the_report_names_each_job_its_link_the_address_and_where_it_came_from(c
     assert "Sent to: jobs@acme.at" in body and "Address: written in the job ad" in body
     assert "Data Engineer at Beta GmbH" in body and "Would go to: hr@beta.at" in body
     assert "/account" in body and waiting.status == "awaiting_approval"
+
+
+def test_the_report_shows_each_step_from_new_jobs_to_emails_sent(client, llm):
+    w = make_world(client, llm)
+    with w.session() as s:
+        app = queued_app(s, w, llm, title="Backend Engineer", company="Acme GmbH", email="jobs@acme.at")
+        app_service.send(s, app, NOW)
+        user = s.get(User, w.user_id)
+        # Rows are stamped with the real clock, the send with the test's NOW: the period covers both.
+        real = datetime.now(UTC)
+        since, until = min(NOW, real) - timedelta(hours=12), max(NOW, real) + timedelta(hours=12)
+        d = report.build(s, user, since, until)
+        _, body = report.render(user, d, "daily")
+    f = d["funnel"]
+    assert (f["good"], f["with_email"], f["written"], f["sent"]) == (1, 1, 1, 1)
+    assert f["target"] >= 5 and "Emails sent:" in body
+    assert f"Where it fell short: Too few good matches (1 for a target of {f['target']})" in body
+
+
+def test_the_shortfall_names_the_first_step_that_fell_short():
+    base = {"target": 5, "good": 20, "with_email": 8, "written": 8, "stopped": 1, "sent": 5}
+    assert report.shortfall(base) == ""
+    assert "web form" in report.shortfall({**base, "with_email": 3, "sent": 2})
+    assert "quality checks: 5 of 8" in report.shortfall({**base, "stopped": 5, "sent": 3})
+    assert "send window" in report.shortfall({**base, "sent": 2})
 
 
 def test_an_address_found_on_the_employers_site_is_named_with_its_page():

@@ -346,7 +346,29 @@ def test_real_browser_follows_the_apply_link_past_a_search_box(client, llm, site
 
 
 @needs_chrome
-@pytest.mark.parametrize("page,kind",[("captcha.html", "captcha"), ("login.html", "login")])
+def test_real_browser_waits_for_the_apply_button_and_rejects_the_cookie_banner(site, monkeypatch):
+    # Seen live on Workable and the Arbeitsagentur: the button is drawn late, a cookie banner covers it,
+    # and an "Info zur Bewerbung" button sits next to it.
+    from app.connectors.browser import PlaywrightDriver
+
+    monkeypatch.setenv("BROWSER_EXECUTABLE", CHROME)
+    get_settings.cache_clear()
+    driver = PlaywrightDriver()
+    try:
+        driver.open(f"{site[0]}/listing-js.html")
+        assert driver._page.inner_text("#accepted") == "no"          # cookies rejected, never accepted
+        fields = forms._find_form(driver)
+        assert driver.current_url().endswith("/form.html") and fields[0].label == "First name"
+        driver.open(f"{site[0]}/botcheck.html")
+        with pytest.raises(forms.FormStopped, match="CAPTCHA"):
+            forms._find_form(driver)                                  # a bot check is never worked around
+    finally:
+        driver.close()
+    get_settings.cache_clear()
+
+
+@needs_chrome
+@pytest.mark.parametrize("page,kind", [("captcha.html", "captcha"), ("login.html", "login"), ("botcheck.html", "captcha")])
 def test_real_browser_detects_stop_conditions(site, monkeypatch, page, kind):
     from app.connectors.browser import PlaywrightDriver
 

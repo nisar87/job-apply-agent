@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Cloud Engineer - Job board</title></head>
+<body>
+<div id="cookies" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:10">
+  <div style="background:#fff;margin:4rem auto;width:20rem;padding:1rem">
+    We use cookies.
+    <button onclick="document.getElementById('accepted').textContent='yes'; this.closest('#cookies').remove()">Accept all</button>
+    <button onclick="this.closest('#cookies').remove()">Reject all</button>
+  </div>
+</div>
+<span id="accepted">no</span>
+<main id="ad"><h1>Cloud Engineer</h1><p>Loading...</p></main>
+<script>
+  // Like most job boards, the Apply button is drawn by JavaScript after the page has loaded.
+  setTimeout(function () {
+    var info = document.createElement('button');
+    info.textContent = 'Info zur Bewerbung';
+    var apply = document.createElement('button');
+    apply.textContent = 'Apply now';
+    apply.onclick = function () { location.href = '/form.html'; };
+    document.getElementById('ad').append(info, apply);
+  }, 400);
+</script>
+</body>
+</html>

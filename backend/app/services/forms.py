@@ -224,7 +224,10 @@ def _find_form(driver: BrowserDriver) -> list[FormField]:
     for hop in range(APPLY_HOPS + 1):
         blockers = driver.blockers()
         hard = [b for b in blockers if b.kind != "no_form"]
-        fields = [] if any(b.kind == "no_form" for b in blockers) else driver.read_fields()
+        if any(b.kind in ("captcha", "payment") for b in hard):
+            # Never clicked past. Only a login box (often in a job board's header) is looked past for the Apply link.
+            raise FormStopped("; ".join(b.detail for b in hard))
+        fields =[] if any(b.kind == "no_form" for b in blockers) else driver.read_fields()
         if fields and looks_like_application(fields):
             if hard:
                 raise FormStopped("; ".join(b.detail for b in hard))

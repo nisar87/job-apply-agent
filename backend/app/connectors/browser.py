@@ -88,6 +88,9 @@ _BLOCKERS_JS = r"""
   if (document.querySelector('input[type="password"]')) found.push(['login', 'the page asks for a password']);
   if (document.querySelector('.g-recaptcha, [data-sitekey], .h-captcha, .cf-turnstile, iframe[src*="recaptcha"], iframe[src*="hcaptcha"], iframe[src*="turnstile"]'))
     found.push(['captcha', 'the page shows a CAPTCHA']);
+  if (/^(just a moment|attention required|verify you are human|access denied)/i.test(document.title.trim()) ||
+      location.href.includes('__cf_chl') || document.querySelector('#challenge-form, #cf-challenge-running, #px-captcha'))
+    found.push(['captcha', 'the site shows a bot check (CAPTCHA)']);
   if (document.querySelector('input[name*="card" i], input[autocomplete="cc-number"]')) found.push(['payment', 'the page asks for payment details']);
   if (!document.querySelector('form')) found.push(['no_form', 'no application form was found on the page']);
   return JSON.stringify(found);
@@ -102,7 +105,7 @@ _APPLY_LINK_JS = r"""
   const visible = (el) => { const r = el.getBoundingClientRect(); const s = getComputedStyle(el);
     return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none'; };
   const words = /\b(apply|bewerben|bewerbung|postuler|solliciteer)\b/i;
-  const never = /filter|sign in|log ?in|anmelden|einloggen|similar|save|merken|alert|newsletter/i;
+  const never = /filter|sign in|log ?in|anmelden|einloggen|similar|save|merken|alert|newsletter|info|tips|how to|more about|mehr zu/i;
   let best = null, bestScore = -1;
   for (const el of document.querySelectorAll('a, button, [role="button"], input[type="button"], input[type="submit"]')) {
     if (el.closest('form') && el.closest('form').querySelector('input[type="search"], input[name*="search" i], input[name="q"]')) continue;
@@ -122,6 +125,20 @@ _APPLY_LINK_JS = r"""
 """
 
 
+# A cookie banner covers the page and swallows clicks. The most private choice is taken: reject / necessary only.
+_DECLINE_COOKIES_JS = r"""
+() => {
+  const words = /^(reject all|reject|decline all|decline|only necessary|necessary only|use necessary cookies only|refuse all|deny|alle ablehnen|ablehnen|nur notwendige|nur erforderliche|nur essenzielle|tout refuser|continue without accepting)/i;
+  for (const el of document.querySelectorAll('button, [role="button"], a')) {
+    const text = (el.innerText || el.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim();
+    const r = el.getBoundingClientRect();
+    if (text.length < 50 && words.test(text) && r.width > 0 && r.height > 0) { el.click(); return true; }
+  }
+  return false;
+}
+"""
+
+
 class PlaywrightDriver:
     def __init__(self, headless: bool = True):
         from playwright.sync_api import sync_playwright
@@ -137,6 +154,19 @@ class PlaywrightDriver:
 
     def open(self, url: str) -> None:
         self._page.goto(url, wait_until="domcontentloaded")
+        self._settle()
+
+    def _settle(self) -> None:
+        """Most job boards draw the ad and its Apply button with JavaScript after the page loads."""
+        try:
+            self._page.wait_for_load_state("networkidle", timeout=8000)
+        except Exception:  # noqa: BLE001 - pages with endless background requests never go idle
+            pass
+        try:
+            if self._page.evaluate(_DECLINE_COOKIES_JS):
+                self._page.wait_for_timeout(500)
+        except Exception:  # noqa: BLE001 - a banner that cannot be closed is not a reason to stop
+            pass
 
     def blockers(self) -> list[Blocker]:
         return [Blocker(kind=k, detail=d) for k, d in json.loads(self._page.evaluate(_BLOCKERS_JS))]
@@ -185,18 +215,25 @@ class PlaywrightDriver:
             return False
         before = self._page.url
         if target["href"]:
-            self._page.goto(target["href"], wait_until="domcontentloaded")
+            self.open(target["href"])
             return self._page.url != before or bool(self._page.query_selector("form"))
         pages = len(self._page.context.pages)
-        self._page.locator('[data-jaa-apply="1"]').first.click()
+        button = self._page.locator('[data-jaa-apply="1"]').first
         try:
-            self._page.wait_for_load_state("domcontentloaded")
+            button.click(timeout=5000)
+        except Exception:  # noqa: BLE001 - something still covers the button: click it from inside the page
+            try:
+                button.evaluate("el => el.click()")
+            except Exception:  # noqa: BLE001 - the button went away; nothing was opened
+                return False
+        try:
             self._page.wait_for_timeout(1500)       # a button often opens the form in place or in a new tab
-        except Exception:  # noqa: BLE001 - the page may have been replaced; the new one is read below
-            pass
-        if len(self._page.context.pages) > pages:
-            self._page = self._page.context.pages[-1]
+            if len(self._page.context.pages) > pages:
+                self._page = self._page.context.pages[-1]
             self._page.wait_for_load_state("domcontentloaded")
+            self._settle()
+        except Exception:  # noqa: BLE001 - the page may still be loading; it is read as it is
+            pass
         return True
 
     def close(self) -> None:

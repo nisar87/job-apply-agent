@@ -132,6 +132,52 @@ def test_stop_conditions_leave_the_job_on_the_manual_list(client, llm, blocker, 
     set_driver_factory(None)
 
 
+SEARCH_BOX = [FormField("s0", "Search jobs", "search", False), FormField("s1", "Location", "text", False)]
+APPLY_URL = "https://boards.greenhouse.io/donau/jobs/1/apply"
+
+
+def test_only_a_real_application_form_counts():
+    assert forms.looks_like_application(STANDARD)
+    assert forms.looks_like_application([FormField("a", "Full name", "text", True), FormField("b", "Email", "email", True)])
+    assert not forms.looks_like_application(SEARCH_BOX)
+    assert not forms.looks_like_application([FormField("n", "Your email for job alerts", "email", True)])
+
+
+def test_job_board_page_leads_through_its_apply_link_to_the_form(client, llm):
+    # Seen live: job boards (Himalayas, Workable, Persy...) show the ad with an Apply button, and the
+    # agent stopped with "no application form was found" or filled the site's search box instead.
+    w = form_app(client, llm, url="https://www.example-board.com/jobs/cloud-engineer")
+    driver = FakeDriver(list(SEARCH_BOX), apply_page={"url": APPLY_URL, "fields": list(STANDARD)},
+                        success_text="Thank you for applying")
+    set_driver_factory(lambda: driver)
+    r = client.post(f"/api/applications/{w.app_id}/form/prepare", headers=w.headers)
+    assert r.status_code == 200 and r.json()["status"] == "form_ready"
+    assert driver.visited == ["https://www.example-board.com/jobs/cloud-engineer", APPLY_URL]
+    with w.session() as s:
+        app = s.get(Application, w.app_id)
+        assert app.form_data["form_url"] == APPLY_URL and app.form_data["hiring_system"] == "greenhouse"
+        assert "s0" not in app.form_data["answers"]
+        forms.approve_form(s, app, NOW)
+        forms.submit_form(s, app, now=NOW, driver=driver)
+        assert app.status == "sent"
+    assert driver.visited[-1] == APPLY_URL and driver.submitted     # submitted on the form itself, directly
+    set_driver_factory(None)
+
+
+def test_search_box_alone_or_login_behind_apply_is_left_for_the_user(client, llm):
+    w = form_app(client, llm)
+    set_driver_factory(lambda: FakeDriver(list(SEARCH_BOX)))
+    r = client.post(f"/api/applications/{w.app_id}/form/prepare", headers=w.headers)
+    assert r.status_code == 409 and "no application form was found" in r.json()["detail"]
+    w2 = form_app(client, llm, email="b@example.com")
+    login = {"url": APPLY_URL, "fields": [FormField("u", "Email", "email", True), FormField("p", "Password", "password", True)],
+             "blockers": [Blocker("login", "the page asks for a password")]}
+    set_driver_factory(lambda: FakeDriver([], blockers=[Blocker("no_form", "x")], apply_page=login))
+    r = client.post(f"/api/applications/{w2.app_id}/form/prepare", headers=w2.headers)
+    assert r.status_code == 409 and "password" in r.json()["detail"]      # a login is never worked around
+    set_driver_factory(None)
+
+
 def test_unanswerable_required_field_stops(client, llm):
     w = form_app(client, llm)
     fields = [*STANDARD, FormField("x", "What is your shoe size?", "text", True)]
@@ -276,7 +322,31 @@ def test_real_browser_reads_fills_and_submits(client, llm, site, monkeypatch):
 
 
 @needs_chrome
-@pytest.mark.parametrize("page,kind", [("captcha.html", "captcha"), ("login.html", "login")])
+def test_real_browser_follows_the_apply_link_past_a_search_box(client, llm, site, monkeypatch):
+    from app.connectors.browser import PlaywrightDriver
+
+    base, posts = site
+    monkeypatch.setenv("BROWSER_EXECUTABLE", CHROME)
+    get_settings.cache_clear()
+    w = form_app(client, llm, url=f"{base}/listing.html")
+    with w.session() as s:
+        app = s.get(Application, w.app_id)
+        driver = PlaywrightDriver()
+        try:
+            forms.prepare_form(s, llm, app, driver)
+            assert app.form_data["form_url"] == f"{base}/form.html"
+            assert [f["label"] for f in app.form_data["fields"]][:2] == ["First name", "Last name"]
+            forms.approve_form(s, app, NOW)
+            forms.submit_form(s, app, now=NOW, driver=driver)
+        finally:
+            driver.close()
+        assert app.status == "sent"
+    assert b'name="first_name"\r\n\r\nAlex' in posts[0]
+    get_settings.cache_clear()
+
+
+@needs_chrome
+@pytest.mark.parametrize("page,kind",[("captcha.html", "captcha"), ("login.html", "login")])
 def test_real_browser_detects_stop_conditions(site, monkeypatch, page, kind):
     from app.connectors.browser import PlaywrightDriver
 

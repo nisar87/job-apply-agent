@@ -45,6 +45,9 @@ With **Fill in employers' web forms for me** ticked on a search, each drafting r
 first. Each job gets two tries; failures are logged with their reason and the job stays on the apply-by-hand list.
 A filled form waits for the user's approval. Staging submits only the practice forms on its own site
 (`/practice/form-dotnet.html`); a real employer's form is refused there, because it cannot be sandboxed like email.
+When a job link is only the ad on a job board, the agent follows its Apply link (up to two clicks) to the form;
+a search box or newsletter sign-up is never taken for the application form. `/practice/listing-dotnet.html` is a
+practice job-board page whose Apply link leads to the practice form.
 
 ## What runs where
 

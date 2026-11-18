@@ -202,6 +202,42 @@ def _fill(driver: BrowserDriver, fields: list[FormField], plan: dict, *, cv_name
             driver.upload(by_id[fid], "cover-letter.txt", cover_text.encode())
 
 
+APPLY_HOPS = 2   # job board -> its apply page -> the employer's hiring system
+
+
+def looks_like_application(fields: list[FormField]) -> bool:
+    """A search box, a newsletter sign-up or a cookie form is not an application form:
+    an application asks for a CV, or for the applicant's name and email."""
+    def has(f: FormField, *words: str) -> bool:
+        return _has(f"{f.label} {f.name}".lower(), *words)
+
+    if any(f.type == "file" or has(f, "resume", "lebenslauf", "curriculum") for f in fields):
+        return True
+    named = any(has(f, "name", "vorname", "nachname") and not has(f, "company name", "user name", "username") for f in fields)
+    mailed = any(f.type == "email" or has(f, "email", "e-mail") for f in fields)
+    return named and mailed
+
+
+def _find_form(driver: BrowserDriver) -> list[FormField]:
+    """Read the application form on the opened page, following its Apply link when the page is only
+    the job ad. Stops on a login, CAPTCHA or payment step, which are never worked around."""
+    for hop in range(APPLY_HOPS + 1):
+        blockers = driver.blockers()
+        hard = [b for b in blockers if b.kind != "no_form"]
+        fields = [] if any(b.kind == "no_form" for b in blockers) else driver.read_fields()
+        if fields and looks_like_application(fields):
+            if hard:
+                raise FormStopped("; ".join(b.detail for b in hard))
+            return fields
+        if hop < APPLY_HOPS and driver.follow_apply_link():
+            continue
+        if hard:
+            raise FormStopped("; ".join(b.detail for b in hard))
+        break
+    where = " or behind its Apply button" if hop else ""
+    raise FormStopped(f"no application form was found on the page{where}")
+
+
 def _context(session: Session, app: Application):
     posting = session.get(Posting, app.posting_id)
     campaign = session.get(Campaign, app.campaign_id)
@@ -225,12 +261,9 @@ def prepare_form(session: Session, llm: LLMClient, app: Application, driver: Bro
     system = hiring_system(posting.url)
     try:
         driver.open(posting.url)
-        blockers = driver.blockers()
-        if blockers:
-            raise FormStopped("; ".join(b.detail for b in blockers))
-        fields = driver.read_fields()
-        if not fields:
-            raise FormStopped("no form fields were found")
+        fields = _find_form(driver)
+        form_url = driver.current_url() or posting.url
+        system = hiring_system(form_url) if system == "generic" else system
         facts = cv_service.get_fact_sheet(session, user.id)
         plan = plan_answers(llm, fields, user=user, profile=version.profile, facts=facts, config=config,
                             country=posting.country, cover_text=app.body)
@@ -239,7 +272,7 @@ def prepare_form(session: Session, llm: LLMClient, app: Application, driver: Bro
         _fill(driver, fields, plan, cv_name=version.file_name, cv_data=storage.load(version.file_key), cover_text=app.body)
         key, _ = storage.save(user.id, f"form-{app.id}.png", driver.screenshot())
         app.form_data = {
-            "hiring_system": system, "fields": [f.to_dict() for f in fields], "answers": plan["answers"],
+            "hiring_system": system, "form_url": form_url, "fields": [f.to_dict() for f in fields], "answers": plan["answers"],
             "files": plan["files"], "consents": plan["consents"], "screenshot_key": key,
             "prepared_at": datetime.now(UTC).isoformat(),
         }
@@ -248,7 +281,7 @@ def prepare_form(session: Session, llm: LLMClient, app: Application, driver: Bro
         app.check_results = {"passed": True, "problems": []}
         session.flush()
         audit.record(session, user_id=user.id, actor="agent", tool="prepare_form", entity_id=app.id,
-                     input={"url": posting.url, "hiring_system": system},
+                     input={"url": posting.url, "form_url": form_url, "hiring_system": system},
                      result={"fields": len(fields), "consents": plan["consents"]})
         return app
     except FormStopped as stop:
@@ -370,8 +403,10 @@ def submit_form(session: Session, app: Application, *, now: datetime | None = No
     approved_by_user = app.approved_at is not None
     if not approved_by_user and not auto_submit_allowed(session, user, campaign, system):
         raise rules.RuleViolation("needs_approval", "This form needs your approval before it is submitted", retry_later=True)
+    form_url = (app.form_data or {}).get("form_url") or posting.url
     if driver is None and uses_real_browser():
         _check_form_sandbox(posting.url, user.id)
+        _check_form_sandbox(form_url, user.id)    # the Apply link may lead to another site
     rules.check_send(session, app, campaign, config, user, posting, now)
     if campaign.state == "dry_run":
         slots.release_place(session, app)
@@ -383,12 +418,9 @@ def submit_form(session: Session, app: Application, *, now: datetime | None = No
     app.status = "sending"     # committed first: a crash can never lead to a second submission
     session.commit()
     try:
-        driver.open(posting.url)
-        blockers = driver.blockers()
-        if blockers:
-            raise FormStopped("; ".join(b.detail for b in blockers))
-        fields = driver.read_fields()
-        stored = {f["label"]: f for f in (app.form_data or {}).get("fields", [])}
+        driver.open(form_url)
+        fields = _find_form(driver)
+        stored ={f["label"]: f for f in (app.form_data or {}).get("fields", [])}
         if {f.label for f in fields} != set(stored):
             raise FormStopped("the form changed since you reviewed it")
         plan = {"answers": {}, "files": {}}

@@ -1270,6 +1270,93 @@ class CommonCrawlSource:
         return [u for u in links if u]
 
 
+class WaybackSource:
+    """Finds companies' careers boards in the Internet Archive's free URL index (the Wayback Machine's CDX API).
+    For each hiring system the index lists every board home page the archive saw in the last year
+    (jobs.lever.co/acme, acme.jobs.personio.de, …): about 35,000 companies in all, against the few dozen that
+    links in postings reveal. The CDX API pages with a resume key; where each run got to is kept in the key-value
+    store, so the next run carries on, and a finished pass starts again after a month to pick up new companies.
+    Gives links, not jobs: the harvester takes the company ids from them and checks the boards in turn."""
+
+    name = "wayback"
+    CDX = "https://web.archive.org/cdx/search/cdx"
+    _P = r"^https?://"
+    # (URL pattern, regex the archived address must match: a board's home page, not each job's page)
+    PATTERNS = (
+        ("*.jobs.personio.de", _P + r"[^/]+\.jobs\.personio\.de(:\d+)?/?$"),
+        ("job-boards.greenhouse.io/*", _P + r"job-boards\.greenhouse\.io(:\d+)?/[^/?#]+/?$"),
+        ("boards.greenhouse.io/*", _P + r"boards\.greenhouse\.io(:\d+)?/[^/?#]+/?$"),
+        ("jobs.lever.co/*", _P + r"jobs\.lever\.co(:\d+)?/[^/?#]+/?$"),
+        ("jobs.ashbyhq.com/*", _P + r"jobs\.ashbyhq\.com(:\d+)?/[^/?#]+/?$"),
+        ("apply.workable.com/*", _P + r"apply\.workable\.com(:\d+)?/[^/?#]+/?$"),
+        ("*.teamtailor.com", _P + r"[^/]+\.teamtailor\.com(:\d+)?/(jobs/?)?$"),
+        ("*.recruitee.com", _P + r"[^/]+\.recruitee\.com(:\d+)?/?$"),
+        ("jobs.smartrecruiters.com/*", _P + r"jobs\.smartrecruiters\.com(:\d+)?/[^/?#]+/?$"),
+    )
+    ROWS = 5000
+    PAGES_PER_RUN = 4
+    REPEAT_AFTER = timedelta(days=30)
+    LOOK_BACK = timedelta(days=365)  # boards archived in the last year: companies that still hire
+    CURSOR = "wayback:cursor"
+
+    def __init__(self, http: httpx.Client | None = None, clock=None):
+        self.http = http or httpx.Client(timeout=90, follow_redirects=True,
+                                         headers={"User-Agent": "JobApplyAgent/0.1 (careers board discovery)"})
+        self.clock = clock or (lambda: datetime.now(UTC))
+
+    def search(self, query: SearchQuery) -> list[RawPosting]:
+        return []  # finds boards, not jobs
+
+    def _kv(self):
+        from app.tasks.locks import get_redis
+
+        return get_redis()
+
+    def cursor(self) -> dict:
+        import json
+
+        raw = self._kv().get(self.CURSOR)
+        return json.loads(raw) if raw else {}
+
+    def find_boards(self, query: HarvestQuery) -> list[str]:
+        import json
+
+        now = self.clock()
+        state = self.cursor()
+        if state.get("done_at"):
+            if now - datetime.fromisoformat(state["done_at"]) < self.REPEAT_AFTER:
+                return []
+            state = {}
+        if not state:
+            state = {"pattern": 0, "resume": None, "since": (now - self.LOOK_BACK).strftime("%Y%m%d")}
+        links: list[str] = []
+        for _ in range(self.PAGES_PER_RUN):
+            if state["pattern"] >= len(self.PATTERNS) or query.out_of_time():
+                break
+            url, rx = self.PATTERNS[state["pattern"]]
+            params = {"url": url, "fl": "original", "collapse": "urlkey", "from": state["since"],
+                      "limit": self.ROWS, "filter": f"original:{rx}", "showResumeKey": "true"}
+            if state.get("resume"):
+                params["resumeKey"] = state["resume"]
+            # A timeout or server error raises, and the cursor stays where it was: the next run tries again.
+            resp = self.http.get(self.CDX, params=params)
+            resp.raise_for_status()
+            lines = resp.text.strip().split("\n") if resp.text.strip() else []
+            resume = None
+            if len(lines) >= 2 and lines[-2].strip() == "":   # the resume key follows a blank line
+                resume, lines = lines[-1].strip(), lines[:-2]
+            # Archived addresses may carry the port (http://jobs.lever.co:80/acme); company ids are read without it.
+            links += [re.sub(r":(80|443)(?=/|$)", "", u.strip()) for u in lines if u.strip()]
+            if resume:
+                state["resume"] = resume
+            else:
+                state.update(pattern=state["pattern"] + 1, resume=None)
+            if state["pattern"] >= len(self.PATTERNS):
+                state["done_at"] = now.isoformat()
+            self._kv().set(self.CURSOR, json.dumps(state), ex=90 * 86400)
+        return links
+
+
 class LandingJobsSource:
     """Landing.jobs, a European tech board known for jobs that pay relocation and help with visas (public API,
     no key). The newest jobs a page of 50 at a time until they are older than two weeks, four pages at most, each
@@ -1395,11 +1482,13 @@ class BerlinStartupJobsSource:
 
 
 REMOTE_SOURCES = {"remotive", "jobicy", "himalayas", "weworkremotely", "remoteok", "workingnomads"}
-# Free sources the job harvester collects into the pool (no key, no per-request price, no model calls). Common
-# Crawl gives no jobs: it grows the directory of company boards, which the harvester then reads.
+# Free sources the job harvester collects into the pool (no key, no per-request price, no model calls). The
+# Wayback Machine and Common Crawl give no jobs: they grow the directory of company boards, which the harvester
+# then reads.
 HARVEST_BOARDS = ("arbeitsagentur", "arbeitnow", "remotive", "jobicy", "himalayas", "weworkremotely", "remoteok",
-                  "workingnomads", "hackernews", "workablesearch", "landingjobs", "berlinstartupjobs", "commoncrawl")
-HARVEST_ONLY = {"hackernews", "workablesearch", "landingjobs", "berlinstartupjobs", "commoncrawl"}
+                  "workingnomads", "hackernews", "workablesearch", "landingjobs", "berlinstartupjobs", "wayback",
+                  "commoncrawl")
+HARVEST_ONLY = {"hackernews", "workablesearch", "landingjobs", "berlinstartupjobs", "wayback", "commoncrawl"}
 COMPANY_FEED_SOURCES = {"greenhouse", "lever", "personio", "ashby", "workable", "smartrecruiters", "recruitee",
                         "teamtailor"}
 _registry: dict[str, JobSource] | None = None
@@ -1422,7 +1511,7 @@ def get_sources() -> dict[str, JobSource]:
                                 RemoteOkSource(), WorkingNomadsSource(), AshbySource(), WorkableSource(),
                                 SmartRecruitersSource(), RecruiteeSource(), TeamtailorSource(),
                                 HackerNewsSource(), WorkableSearchSource(), LandingJobsSource(),
-                                BerlinStartupJobsSource(), CommonCrawlSource())
+                                BerlinStartupJobsSource(), WaybackSource(), CommonCrawlSource())
         }
         if get_settings().llm_provider == "fake":
             _registry = {"demo": FakeSource(demo_postings())}

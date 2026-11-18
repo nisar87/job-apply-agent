@@ -88,7 +88,7 @@ BOARD_URLS = {
     "jobicy": "https://jobicy.com", "himalayas": "https://himalayas.app", "weworkremotely": "https://weworkremotely.com",
     "remoteok": "https://remoteok.com", "workingnomads": "https://www.workingnomads.com",
     "hackernews": "https://news.ycombinator.com/submitted?id=whoishiring", "workablesearch": "https://jobs.workable.com",
-    "commoncrawl": "https://index.commoncrawl.org", "landingjobs": "https://landing.jobs",
+    "commoncrawl": "https://index.commoncrawl.org", "wayback": "https://web.archive.org", "landingjobs": "https://landing.jobs",
     "berlinstartupjobs": "https://berlinstartupjobs.com/engineering/",
 }
 

@@ -104,8 +104,9 @@ def test_the_harvester_collects_free_boards_learns_company_boards_and_checks_the
     assert len(llm.calls) == calls_before  # no model call anywhere in the harvester
     assert out["sources"]["remotive"] == {"jobs": 2, "new": 2}
     assert out["sources"]["arbeitsagentur"]["new"] == 1  # the same job found by both terms counts once
-    assert out["sources"]["lever"] == {"jobs": 2, "new": 2, "boards": 1}  # whole board, no keyword filter
-    assert out["boards_learned"] == 1 and out["boards_checked"] == 1 and out["new"] == 5
+    # The whole board is read; the pool keeps its technical job, not the Office Manager.
+    assert out["sources"]["lever"] == {"jobs": 2, "new": 1, "boards": 1}
+    assert out["boards_learned"] == 1 and out["boards_checked"] == 1 and out["new"] == 4
     assert out["errors"] == ["jobicy: ConnectError"] and set(out["terms"]) == {"engineer", "c#"}
     with system_session() as s:
         rows = {(r.source, r.source_id): r for r in s.execute(select(PoolJob)).scalars()}

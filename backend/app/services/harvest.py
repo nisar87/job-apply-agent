@@ -9,8 +9,10 @@ scraping of sites whose terms forbid it. Each run:
    cached fetches, so a board is never asked more often than every few hours; slow sources get a share of the
    run's time, not all of it;
 2. scans each new job's link and text for a company's own careers board (Greenhouse, Lever, …) and adds it to
-   the directory, which is how the pool reaches more companies every day; a slice of Common Crawl's free URL
-   index adds many more boards (it carries on where the last run stopped, about one index a month);
+   the directory, which is how the pool reaches more companies every day; a slice of the Wayback Machine's free
+   URL index adds tens of thousands more (every hiring-system board home page archived in the last year; each
+   run carries on where the last one stopped, and the pass repeats monthly), and Common Crawl's index when it
+   answers;
 3. checks the company boards in the directory that are due, several at once, taking turns between known boards
    and new ones, and stores all of their jobs until the run's time budget is spent; boards whose checks find no
    technical job are checked less often (see sites.due_company_boards);
@@ -56,11 +58,11 @@ MAX_TERMS = 25
 MAX_DAYS = 14                      # how far back the federal board is asked
 FRESH_FOR = timedelta(hours=6)     # a harvest this recent lets searches skip the boards it covers
 COMPANY_BOARDS_PER_RUN = 5000
-BOARD_WORKERS = 6                  # company boards fetched at once
+BOARD_WORKERS = 10                 # company boards fetched at once (hiring systems take turns, see _by_turns)
 BOARD_CHUNK = 24                   # boards fetched between two looks at the clock
 # Sources that may take only part of the run, so the company boards still get their turn.
-SOURCE_BUDGET_SECONDS = {"arbeitsagentur": 70, "workablesearch": 50, "commoncrawl": 40, "hackernews": 30,
-                         "landingjobs": 30}
+SOURCE_BUDGET_SECONDS = {"arbeitsagentur": 70, "workablesearch": 50, "wayback": 45, "commoncrawl": 20,
+                         "hackernews": 30, "landingjobs": 30}
 LAST_KEY, DUE_KEY, LOCK_KEY = "harvest:last", "harvest:due", "harvest:running"
 
 # Remote OK and Working Nomads list every kind of job; the pool keeps the technical ones (judged by the title)
@@ -160,7 +162,7 @@ def harvest(session: Session, now: datetime | None = None, *, budget_seconds: fl
     rechecks = sites.due_company_boards(session, None, now, limit=COMPANY_BOARDS_PER_RUN, checked=True)
     fresh = sites.due_company_boards(session, None, now, limit=COMPANY_BOARDS_PER_RUN, checked=False)
     due = [s for pair in zip_longest(rechecks, fresh) for s in pair if s is not None][:COMPANY_BOARDS_PER_RUN]
-    due = [s for s in due if s.provider in COMPANY_FEED_SOURCES and sources.get(s.provider) is not None]
+    due = _by_turns([s for s in due if s.provider in COMPANY_FEED_SOURCES and sources.get(s.provider) is not None])
     with ThreadPoolExecutor(max_workers=BOARD_WORKERS) as workers:
         for start in range(0, len(due), BOARD_CHUNK):
             if out_of_time():
@@ -184,6 +186,11 @@ def harvest(session: Session, now: datetime | None = None, *, budget_seconds: fl
                 useful = matching > 0 or any(matches_keywords(r.title, TECH_TERMS) for r in raws)
                 sites.record(site, ok=True, jobs=len(raws), matches=matching, now=now, useful=useful)
                 session.commit()
+                # Tens of thousands of company boards list every kind of job; the pool keeps the technical ones
+                # and any that matches someone's search terms, as for the remote boards that list everything.
+                listed = len(raws)
+                raws = [r for r in raws if matches_keywords(r.title, TECH_TERMS)
+                        or (terms and matches_keywords(f"{r.title} {r.description}", terms))]
                 counts = result["sources"].setdefault(site.provider, {"jobs": 0, "new": 0, "boards": 0})
                 try:
                     new = keep(raws)
@@ -192,7 +199,7 @@ def harvest(session: Session, now: datetime | None = None, *, budget_seconds: fl
                     log.warning("harvest: storing %s/%s failed: %s", site.provider, site.slug, exc)
                     result["errors"].append(f"{site.provider}/{site.slug}: {type(exc).__name__}")
                     new = []
-                counts["jobs"] += len(raws)
+                counts["jobs"] += listed
                 counts["new"] += len(new)
                 counts["boards"] += 1
 
@@ -203,6 +210,16 @@ def harvest(session: Session, now: datetime | None = None, *, budget_seconds: fl
     result["finished_at"] = (now + timedelta(seconds=clock() - started)).isoformat()
     result["errors"] = result["errors"][:30]
     return result
+
+
+def _by_turns(boards: list) -> list:
+    """The boards with their hiring systems taking turns (Lever, Greenhouse, Personio, Lever, …), keeping each
+    system's own order: boards are learned in thousands per system, and the parallel fetches should not all go
+    to one system's servers at once."""
+    queues: dict[str, list] = {}
+    for b in boards:
+        queues.setdefault(b.provider, []).append(b)
+    return [b for group in zip_longest(*queues.values()) for b in group if b is not None]
 
 
 def _read_board(source, slug: str) -> tuple[str, object]:

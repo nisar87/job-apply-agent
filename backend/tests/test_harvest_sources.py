@@ -17,6 +17,7 @@ from app.connectors.sources import (
     LeverSource,
     RawPosting,
     SearchQuery,
+    WaybackSource,
     WorkableSearchSource,
     WorkableSource,
     set_sources,
@@ -274,6 +275,56 @@ def test_common_crawl_finds_company_boards_a_slice_per_run(client, llm):
     with system_session() as s:
         harvest.harvest(s)
     assert source.cursor()["index"] == "CC-MAIN-2026-48" and len(fetched) == count + 3
+
+
+def test_the_internet_archive_lists_company_boards_a_few_pages_per_run(client, llm):
+    make_world(client, llm)
+    asked = []
+    pages = {  # (pattern, resume key) -> (archived addresses, next resume key)
+        ("*.jobs.personio.de", None): (["https://acme.jobs.personio.de/", "http://beta.jobs.personio.de:80/"], "k1"),
+        ("*.jobs.personio.de", "k1"): (["https://gamma.jobs.personio.de"], None),
+        ("job-boards.greenhouse.io/*", None): (["https://job-boards.greenhouse.io/delta"], None),
+    }
+
+    def handler(request):
+        p = request.url.params
+        assert request.url.host == "web.archive.org" and p["filter"].startswith("original:^https?://")
+        asked.append((p["url"], p.get("resumeKey")))
+        lines, key = pages.get((p["url"], p.get("resumeKey")), ([], None))
+        return httpx.Response(200, text="\n".join(lines + (["", key] if key else [])) + "\n")
+
+    clock = [NOW]
+    source = WaybackSource(mock(handler), clock=lambda: clock[0])
+    set_sources({"wayback": source})
+    with system_session() as s:
+        out = harvest.harvest(s)
+        learned = {(r.provider, r.slug) for r in s.execute(select(JobSite).where(JobSite.kind == "company")).scalars()}
+    # Four pages a run: both Personio pages (the port is dropped), Greenhouse's, then the next pattern's first.
+    assert {("personio", "acme"), ("personio", "beta"), ("personio", "gamma"), ("greenhouse", "delta")} <= learned
+    assert asked[:3] == [("*.jobs.personio.de", None), ("*.jobs.personio.de", "k1"), ("job-boards.greenhouse.io/*", None)]
+    assert len(asked) == 4 and out["sources"]["wayback"]["boards"] == 4
+    for _ in range(2):  # the remaining patterns, four requests a run; then the pass is done
+        with system_session() as s:
+            harvest.harvest(s)
+    every = len(WaybackSource.PATTERNS) + 1  # one request per pattern, two for Personio's two pages
+    assert len(asked) == every and source.cursor().get("done_at")
+    with system_session() as s:
+        harvest.harvest(s)
+    assert len(asked) == every  # nothing more until a month has passed
+    clock[0] = NOW + timedelta(days=31)
+    with system_session() as s:
+        harvest.harvest(s)
+    assert asked[-4] == ("*.jobs.personio.de", None)  # a new pass, for companies new to the archive
+
+
+def test_company_boards_take_turns_by_hiring_system_and_keep_only_technical_jobs():
+    class B:
+        def __init__(self, provider, slug):
+            self.provider, self.slug = provider, slug
+
+    order = harvest._by_turns([B("lever", "a"), B("lever", "b"), B("lever", "c"), B("personio", "x"), B("ashby", "y")])
+    assert [(b.provider, b.slug) for b in order] == [("lever", "a"), ("personio", "x"), ("ashby", "y"),
+                                                     ("lever", "b"), ("lever", "c")]
 
 
 def test_boards_without_technical_jobs_are_checked_less_often(client, llm):

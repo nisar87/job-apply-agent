@@ -92,14 +92,24 @@ def cv_search_keywords(user_id: uuid.UUID = Depends(current_user_id), session: S
     return {"keywords": cv_service.search_keywords(session, user_id)}
 
 
+COMPANY_BOARDS_SHOWN = 300
+
+
 @router.get("/job-sites")
 def job_sites(user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
-    """Every place the agent looks for jobs, with how the last checks went. Shared directory, no user data."""
+    """The places the agent looks for jobs, with how the last checks went. Shared directory, no user data.
+    Every whole board, and of the tens of thousands of company boards the ones with the most matching jobs
+    (the count of all of them is in /api/job-pool)."""
     from sqlalchemy import select as sa_select
 
     from app.models import JobSite
 
-    rows = session.execute(sa_select(JobSite).order_by(JobSite.kind.desc(), JobSite.provider, JobSite.slug)).scalars()
+    boards = session.execute(sa_select(JobSite).where(JobSite.kind != "company")
+                             .order_by(JobSite.provider)).scalars().all()
+    companies = session.execute(sa_select(JobSite).where(JobSite.kind == "company").order_by(
+        JobSite.last_matches.desc().nulls_last(), JobSite.last_ok_at.desc().nulls_last(), JobSite.slug,
+    ).limit(COMPANY_BOARDS_SHOWN)).scalars().all()
+    rows = [*boards, *companies]
     return [{"provider": r.provider, "slug": r.slug, "kind": r.kind, "name": r.name or r.provider, "url": r.url,
              "enabled": r.enabled, "last_checked_at": r.last_checked_at, "last_ok_at": r.last_ok_at,
              "last_matches": r.last_matches, "failures": r.failures, "last_error": r.last_error,

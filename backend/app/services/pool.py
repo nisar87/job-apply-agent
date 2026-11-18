@@ -123,7 +123,11 @@ def stats(session: Session, now: datetime | None = None) -> dict:
     now = now or datetime.now(UTC)
     total = session.execute(select(func.count()).select_from(PoolJob)).scalar() or 0
     fresh = session.execute(select(func.count()).select_from(PoolJob).where(PoolJob.first_seen >= now - timedelta(days=1))).scalar() or 0
-    return {"jobs": int(total), "new_last_day": int(fresh)}
+    from app.models import JobSite
+
+    boards = session.execute(select(func.count()).select_from(JobSite).where(
+        JobSite.kind == "company", JobSite.enabled.is_(True))).scalar() or 0
+    return {"jobs": int(total), "new_last_day": int(fresh), "company_boards": int(boards)}
 
 
 def _like(word: str) -> str:

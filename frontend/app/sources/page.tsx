@@ -10,7 +10,7 @@ type Site = {
   last_error: string; learned_from: string;
 };
 
-type Pool = { jobs: number; new_last_day: number; last_harvest: { finished_at?: string; new?: number; boards_checked?: number; boards_learned?: number } | null };
+type Pool = { jobs: number; new_last_day: number; company_boards?: number; last_harvest: { finished_at?: string; new?: number; boards_checked?: number; boards_learned?: number } | null };
 
 const BOARD_NAMES: Record<string, string> = {
   pool: "Job pool (free harvester)", websearch: "Google search (by the AI)", arbeitnow: "Arbeitnow", arbeitsagentur: "Bundesagentur für Arbeit", adzuna: "Adzuna", remotive: "Remotive", jobicy: "Jobicy", himalayas: "Himalayas",
@@ -18,6 +18,7 @@ const BOARD_NAMES: Record<string, string> = {
   hackernews: "Hacker News: Who is hiring", workablesearch: "Workable job search",
   landingjobs: "Landing.jobs", berlinstartupjobs: "Berlin Startup Jobs",
   commoncrawl: "Common Crawl (finds company career pages)",
+  wayback: "Internet Archive (finds company career pages)",
 };
 
 function status(s: Site): { text: string; tone: string } {
@@ -69,8 +70,12 @@ export default function Sources() {
           })}
         </ul>
       )}
-      <h2 className="mt-8 text-xl">Company career pages ({companies.length})</h2>
-      <p className="mt-1 max-w-prose text-sm text-slate">Found from links in job ads (Greenhouse, Lever, Ashby, Workable, SmartRecruiters, Recruitee, Personio, Teamtailor).</p>
+      <h2 className="mt-8 text-xl">Company career pages ({pool?.company_boards ?? companies.length})</h2>
+      <p className="mt-1 max-w-prose text-sm text-slate">
+        Found from links in job ads and from the Internet Archive&apos;s list of careers pages (Greenhouse, Lever, Ashby,
+        Workable, SmartRecruiters, Recruitee, Personio, Teamtailor).
+        {pool?.company_boards && pool.company_boards > companies.length ? ` Showing the ${companies.length} with the most matching jobs.` : ""}
+      </p>
       {data && companies.length === 0 ? <Empty>None learned yet. They appear as the agent reads job ads that link to a company&apos;s own careers page.</Empty> : (
         <ul className="mt-3 divide-y divide-rule border border-rule bg-sheet text-sm">
           {companies.map((s) => {

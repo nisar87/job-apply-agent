@@ -1,0 +1,36 @@
+name: Discover company boards
+# Lists every hiring-system careers board the Internet Archive saw in the last year and adds the new ones to
+# staging's directory, which the harvester then checks. Runs here because the archive refuses connections from
+# Google Cloud. Reads the scheduler token from Secret Manager (keyless sign-in, as in Deploy staging).
+on:
+  schedule:
+    - cron: "17 2 3 * *"   # monthly, on the 3rd
+  workflow_dispatch:
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/644630290784/locations/global/workloadIdentityPools/github/providers/job-apply-agent
+          service_account: jaa-deploy@job-apply-agent-staging.iam.gserviceaccount.com
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Discover and send
+        working-directory: backend
+        run: |
+          pip install --quiet -e .
+          TOKEN="$(gcloud secrets versions access latest --secret SCHEDULER_TOKEN --project job-apply-agent-staging)"
+          echo "::add-mask::$TOKEN"
+          API_URL=https://jobs.aicvstudio.app SCHEDULER_TOKEN="$TOKEN" python -m scripts.discover_boards

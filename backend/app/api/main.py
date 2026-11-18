@@ -7,6 +7,7 @@ import uuid
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 
 from app.api import account, admin, auth, core, replies, work
@@ -91,6 +92,31 @@ def run_scheduled_job(job: str, x_scheduler_token: str = Header(default="")):
     module, name = SCHEDULED_JOBS[job]
     result = getattr(importlib.import_module(module), name)()
     return {"job": job, "result": result}
+
+
+class BoardLinksIn(BaseModel):
+    links: list[str] = Field(max_length=25000)
+    source: str = Field(default="wayback", max_length=40)
+
+
+@app.post("/api/system/boards")
+def add_company_boards(body: BoardLinksIn, x_scheduler_token: str = Header(default="")):
+    """Company careers boards found outside this service (scripts/discover_boards.py: the Internet Archive refuses
+    connections from Google Cloud). Only hiring-system board addresses are taken from the links; known boards are
+    left as they are. Same shared token as the scheduled jobs."""
+    token = get_settings().scheduler_token
+    if not token or not hmac.compare_digest(x_scheduler_token, token):
+        raise HTTPException(403, "Not allowed")
+    from app.services import harvest, sites
+
+    boards = sites.find_company_boards(*[link[:500] for link in body.links])
+    with system_session() as session:
+        before = harvest._company_boards(session)
+        sites.add(session, boards, body.source)
+        session.commit()
+        # Counted, not taken from the insert: a skipped known board does not reliably report 0 rows.
+        new = harvest._company_boards(session) - before
+    return {"boards": len(boards), "new": new}
 
 
 @app.post("/api/system/ping-task")

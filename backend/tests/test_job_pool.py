@@ -264,3 +264,19 @@ def test_the_tick_starts_a_harvest_every_two_hours_and_the_operator_can_run_one(
     out = client.get("/api/job-pool", headers=w.headers).json()
     assert out["jobs"] == 0 and out["last_harvest"]["finished_at"]
     assert client.get("/api/job-pool").status_code == 401
+
+
+def test_boards_found_outside_the_service_are_added_with_the_shared_token(client, llm, monkeypatch):
+    from app.config import get_settings
+
+    links = ["https://acme.jobs.personio.de/", "https://jobs.lever.co/beta", "https://example.com/careers"]
+    assert client.post("/api/system/boards", json={"links": links}).status_code == 403  # no token set: never open
+    monkeypatch.setenv("SCHEDULER_TOKEN", "t" * 40)
+    get_settings.cache_clear()
+    assert client.post("/api/system/boards", json={"links": links}, headers={"X-Scheduler-Token": "x"}).status_code == 403
+    r = client.post("/api/system/boards", json={"links": links}, headers={"X-Scheduler-Token": "t" * 40})
+    assert r.status_code == 200 and r.json() == {"boards": 2, "new": 2}   # the plain website is not a board
+    again = client.post("/api/system/boards", json={"links": links}, headers={"X-Scheduler-Token": "t" * 40})
+    assert again.json() == {"boards": 2, "new": 0}
+    w = make_world(client, llm)
+    assert client.get("/api/job-pool", headers=w.headers).json()["company_boards"] == 2

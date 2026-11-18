@@ -1300,7 +1300,8 @@ class WaybackSource:
     CURSOR = "wayback:cursor"
 
     def __init__(self, http: httpx.Client | None = None, clock=None):
-        self.http = http or httpx.Client(timeout=90, follow_redirects=True,
+        # A short connect timeout: from networks the archive refuses, a run loses ten seconds, not the whole budget.
+        self.http = http or httpx.Client(timeout=httpx.Timeout(90, connect=10), follow_redirects=True,
                                          headers={"User-Agent": "JobApplyAgent/0.1 (careers board discovery)"})
         self.clock = clock or (lambda: datetime.now(UTC))
 
@@ -1333,20 +1334,9 @@ class WaybackSource:
         for _ in range(self.PAGES_PER_RUN):
             if state["pattern"] >= len(self.PATTERNS) or query.out_of_time():
                 break
-            url, rx = self.PATTERNS[state["pattern"]]
-            params = {"url": url, "fl": "original", "collapse": "urlkey", "from": state["since"],
-                      "limit": self.ROWS, "filter": f"original:{rx}", "showResumeKey": "true"}
-            if state.get("resume"):
-                params["resumeKey"] = state["resume"]
             # A timeout or server error raises, and the cursor stays where it was: the next run tries again.
-            resp = self.http.get(self.CDX, params=params)
-            resp.raise_for_status()
-            lines = resp.text.strip().split("\n") if resp.text.strip() else []
-            resume = None
-            if len(lines) >= 2 and lines[-2].strip() == "":   # the resume key follows a blank line
-                resume, lines = lines[-1].strip(), lines[:-2]
-            # Archived addresses may carry the port (http://jobs.lever.co:80/acme); company ids are read without it.
-            links += [re.sub(r":(80|443)(?=/|$)", "", u.strip()) for u in lines if u.strip()]
+            page, resume = self.page(state["pattern"], state["since"], state.get("resume"))
+            links += page
             if resume:
                 state["resume"] = resume
             else:
@@ -1354,6 +1344,35 @@ class WaybackSource:
             if state["pattern"] >= len(self.PATTERNS):
                 state["done_at"] = now.isoformat()
             self._kv().set(self.CURSOR, json.dumps(state), ex=90 * 86400)
+        return links
+
+    def page(self, pattern: int, since: str, resume: str | None = None) -> tuple[list[str], str | None]:
+        """One page of board addresses for PATTERNS[pattern], and the key of the next page (None after the last)."""
+        url, rx = self.PATTERNS[pattern]
+        params = {"url": url, "fl": "original", "collapse": "urlkey", "from": since, "limit": self.ROWS,
+                  "filter": f"original:{rx}", "showResumeKey": "true"}
+        if resume:
+            params["resumeKey"] = resume
+        resp = self.http.get(self.CDX, params=params)
+        resp.raise_for_status()
+        lines = resp.text.strip().split("\n") if resp.text.strip() else []
+        nxt = None
+        if len(lines) >= 2 and lines[-2].strip() == "":   # the resume key follows a blank line
+            nxt, lines = lines[-1].strip(), lines[:-2]
+        # Archived addresses may carry the port (http://jobs.lever.co:80/acme); company ids are read without it.
+        return [re.sub(r":(80|443)(?=/|$)", "", u.strip()) for u in lines if u.strip()], nxt
+
+    def every_link(self) -> list[str]:
+        """A whole pass at once, for scripts/discover_boards.py (run where the archive answers: it refuses
+        connections from some cloud networks, Google Cloud among them)."""
+        since, links = (self.clock() - self.LOOK_BACK).strftime("%Y%m%d"), []
+        for pattern in range(len(self.PATTERNS)):
+            resume = None
+            while True:
+                page, resume = self.page(pattern, since, resume)
+                links += page
+                if not resume:
+                    break
         return links
 
 

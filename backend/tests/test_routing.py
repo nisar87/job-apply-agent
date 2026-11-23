@@ -85,7 +85,7 @@ def test_structured_answers_come_from_the_forced_tool_call():
     out = c.generate_structured("judge", {"type": "object"}, tier="strong")
     assert out.data == {"score": 80} and (out.input_tokens, out.output_tokens) == (10, 5) and out.model == "s"
     sent = c._client.messages.sent[0]
-    assert sent["tool_choice"] == {"type": "tool", "name": "answer"}
+    assert sent["tool_choice"] == {"type": "auto"}
 
 
 def test_tool_conversations_pass_ids_back_and_group_results():

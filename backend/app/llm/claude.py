@@ -75,8 +75,10 @@ class ClaudeClient:
         """Structured output through one forced tool call whose input schema is the wanted shape."""
         model = self._model(tier)
         tool = {"name": "answer", "description": "Return the answer in exactly this shape.", "input_schema": schema}
-        kw = {"system": system} if system else {}
-        resp = self._call(model=model, max_tokens=MAX_TOKENS, tools=[tool], tool_choice={"type": "tool", "name": "answer"},
+        # Newer Claude models refuse a forced tool choice, so the tool is offered and the system text asks for it.
+        ask = "Give your answer only by calling the `answer` tool."
+        kw = {"system": f"{system}\n\n{ask}" if system else ask}
+        resp = self._call(model=model, max_tokens=MAX_TOKENS, tools=[tool], tool_choice={"type": "auto"},
                           messages=[{"role": "user", "content": prompt}], **kw)
         i, o = self._usage(resp)
         data = next((b.input for b in resp.content if getattr(b, "type", "") == "tool_use"), None)

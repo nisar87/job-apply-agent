@@ -106,7 +106,30 @@ def build(session: Session, user_id: uuid.UUID, now: datetime | None = None) -> 
     skips = session.execute(select(Match.reason).where(Match.user_id == user_id, Match.decision == "skip", Match.created_at >= day)).scalars().all()
     buckets = Counter(skip_reason_bucket(r) for r in skips)
 
+    def matches(*conds) -> int:
+        return int(session.execute(select(func.count()).select_from(Match).where(Match.user_id == user_id, *conds)).scalar() or 0)
+
+    # Real counts only. "Submitted" means the send went out; a try-it-first draft or a failed attempt is not one.
+    funnel = {
+        "checked": matches(),
+        "shortlisted": matches(Match.decision.in_(("apply", "manual"))),
+        "pending": count(Application.status.in_(("draft", "queued", "awaiting_approval", "form_ready", "sending"))),
+        "submitted": count(Application.sent_at.is_not(None)),
+        "needs_help": count(Application.status.in_(("manual_apply", "unconfirmed"))),
+        "failed": count(Application.status.in_(("failed", "error"))),
+        "replies": int(session.execute(select(func.count(func.distinct(Message.application_id))).where(
+            Message.user_id == user_id, Message.direction == "in",
+            Message.category.not_in(("auto_ack", "out_of_office", "bounce")))).scalar() or 0),
+        "interviews": count(Application.status == "interview"),
+        "today_checked": matches(Match.created_at >= day),
+        "today_submitted": count(Application.sent_at >= day),
+    }
+    accounts_ok = bool(app_service.mail_account(session, user_id)) and app_service.mail_account(session, user_id).status != "error"
+
     return {
+        "funnel": funnel,
+        "mail_ok": accounts_ok,
+        "searches": [{"name": c.name, "state": c.state} for c in campaigns],
         "status": {**_state(session, user, setup, campaigns), "last_checked_at": last_run},
         "try_it_first": bool(campaigns) and all(c.state == "dry_run" for c in campaigns if c.state != "paused") and any(
             c.state == "dry_run" for c in campaigns),

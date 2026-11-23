@@ -14,7 +14,27 @@ type Home = {
   week: { applied: number; replies: number; interviews: number; checked: number };
   latest: { at: string; kind: string; text: string; note: string; href: string }[];
   skipped: { total: number; reasons: { reason: string; count: number }[] };
+  funnel: { checked: number; shortlisted: number; pending: number; submitted: number; needs_help: number; failed: number;
+    replies: number; interviews: number; today_checked: number; today_submitted: number };
+  mail_ok: boolean;
+  searches: { name: string; state: string }[];
 };
+
+function Stat({ label, value, note, tone }: { label: string; value: number; note?: string; tone?: "good" | "warn" | "bad" }) {
+  const color = tone === "good" ? "text-sent" : tone === "warn" ? "text-waiting" : tone === "bad" ? "text-problem" : "text-ink";
+  return (
+    <div className="rounded-lg border border-rule bg-sheet p-4">
+      <p className={`text-3xl font-semibold ${color}`}>{value}</p>
+      <p className="mt-1 text-sm">{label}</p>
+      {note && <p className="text-xs text-slate">{note}</p>}
+    </div>
+  );
+}
+
+function Dot({ state }: { state: string }) {
+  const c = state === "working" ? "bg-sent" : state === "paused" ? "bg-waiting" : "bg-problem";
+  return <span aria-hidden className={`mr-2 inline-block h-3 w-3 rounded-full ${c}`} />;
+}
 
 function ago(iso: string | null): string {
   if (!iso) return "not yet";
@@ -45,13 +65,17 @@ function HomeScreen() {
   }
 
   return (
-    <Shell title="Home">
+    <Shell title="Overview">
       <ErrorNote message={home.error} />
       {h && (
         <>
-          <section className="flex flex-wrap items-center justify-between gap-3 border-b border-rule pb-5" aria-label="Status">
+          <section className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-rule bg-sheet p-5" aria-label="Status">
             <div>
-              <p className="letter text-2xl">{h.status.text}</p>
+              <p className="letter text-2xl"><Dot state={h.status.state} />{h.status.text}</p>
+              <p className="mt-1 text-sm text-slate">
+                Gmail: {h.mail_ok ? "connected" : "needs attention"}
+                {h.searches.length > 0 && <> · Search: {h.searches.filter((x) => x.state !== "paused").map((x) => x.name).join(", ") || "paused"}</>}
+              </p>
               {h.status.state === "working" && <p className="text-sm text-slate">Last looked for jobs {ago(h.status.last_checked_at)}.</p>}
               {h.status.fix && <p className="mt-1 text-sm"><Link className="underline" href={h.status.fix.href}>{h.status.fix.text}</Link></p>}
             </div>
@@ -59,6 +83,20 @@ function HomeScreen() {
             {h.status.state === "paused" && !h.status.fix?.href.startsWith("/setup") && (
               <button className="btn" disabled={busy} onClick={() => togglePause(false)}>Resume</button>
             )}
+          </section>
+
+          <section className="mt-6" aria-label="Numbers">
+            <h2 className="text-xl">What the agent did</h2>
+            <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+              <Stat label="Jobs checked" value={h.funnel.checked} note={`${h.funnel.today_checked} in the last 24 hours`} />
+              <Stat label="Worth applying to" value={h.funnel.shortlisted} />
+              <Stat label="Submitted" value={h.funnel.submitted} note={`${h.funnel.today_submitted} in the last 24 hours`} tone="good" />
+              <Stat label="Being prepared" value={h.funnel.pending} />
+              <Stat label="Employers replied" value={h.funnel.replies} tone="good" />
+              <Stat label="Interviews" value={h.funnel.interviews} tone="good" />
+              <Stat label="Need your help" value={h.funnel.needs_help} tone={h.funnel.needs_help ? "warn" : undefined} />
+              <Stat label="Failed" value={h.funnel.failed} tone={h.funnel.failed ? "bad" : undefined} />
+            </div>
           </section>
 
           <section className="mt-8" aria-label="Needs you">
@@ -76,16 +114,11 @@ function HomeScreen() {
           </section>
 
           <section className="mt-8" aria-label="This week">
-            <h2 className="text-xl">This week</h2>
-            <p className="mt-2 text-sm">
-              <strong>{h.week.applied}</strong> applied · <strong>{h.week.replies}</strong> {h.week.replies === 1 ? "reply" : "replies"} ·{" "}
-              <strong>{h.week.interviews}</strong> {h.week.interviews === 1 ? "interview" : "interviews"} · <strong>{h.week.checked}</strong> jobs checked
-            </p>
             {h.try_it_first && <p className="mt-1 text-sm text-slate">Try-it-first is on, so nothing has been sent. Applications show what would have gone out.</p>}
           </section>
 
           <section className="mt-8" aria-label="Latest">
-            <h2 className="text-xl">Latest</h2>
+            <h2 className="text-xl">Activity</h2>
             {h.latest.length === 0 && h.skipped.total === 0 ? <p className="mt-2 text-sm text-slate">Nothing yet. The first results appear after the first search.</p> : (
               <ul className="mt-2 divide-y divide-rule border-y border-rule text-sm">
                 {h.latest.map((l, i) => (

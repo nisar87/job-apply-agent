@@ -26,10 +26,16 @@ class Settings(BaseSettings):
     gemini_model_fast: str = "gemini-3.5-flash-lite"
     gemini_model_strong: str = "gemini-3.8-flash"
     gemini_model_embed: str = "gemini-embedding-001"
+    # Claude (optional): strong tasks run here when a key is set; Gemini takes over if Claude fails or runs out.
+    anthropic_api_key: str = ""
+    claude_model_strong: str = "claude-sonnet-5-5"
+    claude_model_fast: str = "claude-haiku-5-5"
     # US dollars per million tokens: {model: [input, output]}. Used for cost recording only.
     llm_prices: dict[str, list[float]] = {
         "gemini-3.5-flash-lite": [0.30, 2.50],
         "gemini-3.8-flash": [1.50, 7.50],
+        "claude-sonnet-5-5": [3.00, 15.00],
+        "claude-haiku-5-5": [1.00, 5.00],
     }
     llm_daily_spend_cap_usd: float = 1.0
 

@@ -13,7 +13,19 @@ below has been deployed to the live site yet.
 | Funnel per user | Admin page shows, for each user over 7 days: new jobs, checked, good matches, with an address in the ad, written, stopped, sent, target, and the step where the target was lost |
 | Test or live is always visible | Every signed-in page on a non-production site shows a banner; it turns to a warning when the account is switched to real sending. `/api/auth/me` returns `environment` and `sends_for_real` |
 
-250 backend tests pass (with the migration database from `scripts/init-db.sql`); lint and type check pass.
+## Version 2, phase 1 (matching that can be trusted) and phase 2 (models), on branch v2-build
+
+| Change | Effect |
+| --- | --- |
+| Gates in code | Required languages, role family, level (within one step of the CV's), own-country exclusion, and right to work / sponsorship (EU free movement respected). A gate applies only when the user's side is known, so old accounts behave as before |
+| Posting reading | Extra fields: required languages, role family, level including executive and intern, stricter sponsorship meaning |
+| CV reading | Level, role families and working languages are derived from the CV and stored in the fact sheet; saving the fact sheet keeps them |
+| Same job under another link | Not applied to twice (same employer, same title) |
+| Claude provider | `app/llm/claude.py`; strong tasks on Claude when `ANTHROPIC_API_KEY` is set, Gemini for fast tasks and embeddings, automatic fallback in both directions, Claude paused 5 minutes after a key or credit failure. Tested with simulated models only; not yet run against the real Claude API |
+
+Not yet built from the roadmap: the labelled 200-posting regression set (needs the owner's "would apply" labels), per-provider spend column and key screens, form submission on the eight hiring systems (phase 3), the new interface (5), background scale (6), supply work (7), Gmail sign-in (8), CV tailoring client (9).
+
+267 backend tests pass (with the migration database from `scripts/init-db.sql`); lint passes.
 
 Not yet done in phase 0: a physically separate live deployment (own Cloud Run service, database and Gmail
 connection) for the owner's real job hunt, so the test site is only ever a test site. That is infrastructure, needs

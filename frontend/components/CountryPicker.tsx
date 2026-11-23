@@ -12,6 +12,12 @@ export function useCountries() {
 }
 
 /** Choose the countries a search applies within. No country chosen means anywhere. */
+const EUROPE = ["at", "be", "bg", "ch", "cy", "cz", "de", "dk", "ee", "es", "fi", "fr", "gb", "gr", "hr", "hu", "ie", "is", "it", "lt",
+  "lu", "lv", "mt", "nl", "no", "pl", "pt", "ro", "rs", "se", "si", "sk"];
+const GROUPS: { label: string; codes: string[] }[] = [
+  { label: "All of Europe", codes: EUROPE }, { label: "Canada", codes: ["ca"] }, { label: "United States", codes: ["us"] },
+];
+
 export default function CountryPicker({ value, onChange }: { value: string[]; onChange: (codes: string[]) => void }) {
   const { countries, name, byCode } = useCountries();
   const [query, setQuery] = useState("");
@@ -35,6 +41,13 @@ export default function CountryPicker({ value, onChange }: { value: string[]; on
             <button type="button" className="text-slate hover:text-problem" aria-label={`Remove ${name(code)}`}
               onClick={() => onChange(value.filter((c) => c !== code))}>×</button>
           </span>
+        ))}
+      </div>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {GROUPS.map((g) => (
+          <button key={g.label} type="button" className="btn btn-quiet" onClick={() => onChange([...new Set([...value, ...g.codes])])}>
+            Add {g.label}
+          </button>
         ))}
       </div>
       <input className="field mt-2" placeholder="Add a country: type its name" value={query} aria-label="Add a country"

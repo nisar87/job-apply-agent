@@ -43,9 +43,9 @@ def test_a_right_to_work_removes_the_sponsorship_need():
     assert not gates({"visa_sponsorship": "unknown"}, facts={**OWNER, "right_to_work_countries": ["de"]})
 
 
-def test_the_users_own_country_can_be_excluded():
+    assert gates({"visa_sponsorship": "yes"}, country="pk", mode="remote")      # never your own country, remote or not
     assert gates({"visa_sponsorship": "yes"}, country="pk")
-    assert not gates({"visa_sponsorship": "yes"}, country="pk", mode="remote")
+    assert gates({"visa_sponsorship": "yes"}, country="pk", mode="remote")
     assert not gates({"visa_sponsorship": "yes"}, country="pk", facts={**OWNER, "exclude_home_country": False})
 
 
@@ -90,3 +90,9 @@ def test_a_user_who_declines_sponsorship_only_applies_where_they_may_work():
     assert gates({"visa_sponsorship": "yes"}, country="gb", facts=facts)
     assert not gates({"visa_sponsorship": "unknown"}, country="de", facts=facts)
     assert not gates({"visa_sponsorship": "no"}, country="gb", mode="remote", facts=facts)
+
+
+def test_europe_canada_and_the_us_can_be_chosen_as_a_search_area():
+    from app.services.campaigns import CampaignConfig
+    cfg = CampaignConfig(countries=["Europe", "Canada", "usa"], work_modes=["remote"])
+    assert {"de", "fr", "gb", "pl", "ca", "us"} <= set(cfg.countries) and "pk" not in cfg.countries

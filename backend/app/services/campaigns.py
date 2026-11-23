@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app import audit
 from app.config import get_settings
+from app.countries import REGIONS
 from app.countries import normalize as normalize_country
 from app.models import Campaign
 
@@ -96,7 +97,11 @@ class CampaignConfig(BaseModel):
         out, unknown = [], []
         for item in v:
             code = normalize_country(item)
-            if code is None:
+            if code is None and str(item).strip().lower() in REGIONS:      # "Europe", "EU", "EEA"...
+                for member in sorted(REGIONS[str(item).strip().lower()]):
+                    if member not in out:
+                        out.append(member)
+            elif code is None:
                 unknown.append(str(item))
             elif code not in out:
                 out.append(code)

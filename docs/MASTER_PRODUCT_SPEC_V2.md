@@ -175,6 +175,8 @@ Switched off until the service exists. The agent calls it only when a job passes
 least 85, and the CV's wording misses terms the posting treats as essential. One tailored CV is reused for
 jobs in the same role family whose essential terms match.
 
+The full build specification for the service is `CV_TAILORING_API.md`. In outline:
+
 **Request** (HTTPS, JSON, API key in a header, an idempotency key per request):
 
 | Field | Meaning |

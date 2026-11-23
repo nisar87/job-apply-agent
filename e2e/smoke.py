@@ -47,35 +47,23 @@ def main() -> int:
             page.locator('input[type="password"]').nth(1).fill("correct horse battery")
             page.get_by_role("button", name="Create account").click()
             page.wait_for_url("**/setup")
-            expect(page.get_by_text("Step 1 of 3")).to_be_visible()
+            expect(page.get_by_label("Describe what you want")).to_be_visible()
 
-            # 2. Step 1: the CV, and what was understood.
-            with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
-                f.write(CV)
-            page.set_input_files('input[type="file"]', f.name)
-            page.get_by_role("button", name="Read my CV").click()
-            expect(page.get_by_text("Step 2 of 3")).to_be_visible()
-
-            # 3. Step 2: connect the practice mailbox (the demo has no real Gmail), then the report address.
-            expect(page.get_by_text("Step 2 of 3")).to_be_visible()
+            # 2. Connect the practice mailbox (the demo has no real Gmail) and the report address.
             token = page.evaluate("localStorage.getItem('jaa_token')")
             r = page.request.post(f"{API}/api/mail/fake/connect", headers={"Authorization": f"Bearer {token}"},
                                   data={"address": "alex.jobs@example.com"})
             assert r.ok, r.text()
             page.reload()
-            expect(page.get_by_text("Step 2 of 3")).to_be_visible()      # mail is connected but no report address yet
             page.get_by_label("Main email").fill("me@example.com")
             page.get_by_role("button", name="Save", exact=True).first.click()
-            expect(page.get_by_role("button", name="Continue")).to_be_enabled()
-            page.get_by_role("button", name="Continue").click()
 
-            # 4. Step 3: the plan is made from the CV; change it in words, switch "Try it first" off and start.
-            expect(page.get_by_text("Step 3 of 3")).to_be_visible()
-            page.get_by_label("I planned the search").fill("Apply to 5 remote python backend jobs a day in Austria, not older than 1 week")
-            page.get_by_role("button", name="Change the plan").click()
-            expect(page.get_by_text("backend").first).to_be_visible()
-            page.get_by_label("Try it first").uncheck()
-            page.get_by_role("button", name="Start my agent").click()
+            # 3. One box: attach the CV, say what you want, press Start.
+            with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
+                f.write(CV)
+            page.set_input_files('input[type="file"]', f.name)
+            page.get_by_label("Describe what you want").fill("Apply to 5 remote python backend jobs a day in Austria, not older than 1 week")
+            page.get_by_role("button", name="Start").click()
             page.wait_for_url(WEB + "/")
             expect(page.get_by_text("Your agent is working.")).to_be_visible()
 

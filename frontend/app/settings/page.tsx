@@ -74,7 +74,7 @@ function WhatYouWant() {
               onBlur={(e) => { const v = Number(e.target.value); if (v !== c.config.match_threshold) patch(c.id, { config: { ...c.config, match_threshold: v } }); }} />
             <span className="block text-xs text-slate">Higher means fewer, better-fitting applications.</span>
           </label>
-          <p className="mt-3"><Link className="underline" href="/campaigns">All details of this search</Link> · <Link className="underline" href="/setup-chat">Change it by describing it</Link></p>
+          <p className="mt-3"><Link className="underline" href="/campaigns">All details of this search</Link> · <Link className="underline" href="/setup">Change it by describing it</Link></p>
         </div>
       ))}
     </>

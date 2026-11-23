@@ -66,7 +66,7 @@ function Log() {
   }
 
   return (
-    <Shell title="Applications" actions={tab === "log" && <button className="btn btn-quiet" onClick={download}>Download CSV</button>}>
+    <Shell title="Applications" intro="Every job the agent applied to, is preparing, or skipped, with the reason." actions={tab === "log" && <button className="btn btn-quiet" onClick={download}>Download CSV</button>}>
       <div className="mb-4 flex flex-wrap gap-1 border-b border-ink text-sm" role="tablist">
         {TABS.map((t) => (
           <button key={t.key} role="tab" aria-selected={tab === t.key} onClick={() => setTab(t.key)}

@@ -32,11 +32,11 @@ export function Postmark({ status }: { status: string }) {
 
 export function ErrorNote({ message }: { message: string }) {
   if (!message) return null;
-  return <p className="my-3 border-l-4 border-problem bg-sheet px-3 py-2 text-sm text-problem" role="alert">{message}</p>;
+  return <p className="my-3 rounded-lg border border-problem bg-sheet px-3 py-2 text-sm text-problem" role="alert">{message}</p>;
 }
 
 export function Empty({ children }: { children: React.ReactNode }) {
-  return <p className="rounded border border-dashed border-rule bg-sheet px-4 py-8 text-center text-sm text-slate">{children}</p>;
+  return <p className="rounded-xl border border-dashed border-rule bg-sheet px-4 py-10 text-center text-sm text-slate">{children}</p>;
 }
 
 /** Load data from the API, with reload and error state. */

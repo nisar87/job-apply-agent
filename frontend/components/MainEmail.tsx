@@ -100,7 +100,7 @@ export default function MainEmail({ onSaved }: { onSaved?: () => void } = {}) {
         {note && <span className="text-sent">{note}</span>}
       </p>
       {preview && (
-        <div className="mt-3 border border-rule bg-sheet p-3 text-sm">
+        <div className="mt-3 card p-3 text-sm">
           <p className="text-xs text-slate">To {preview.to} · {preview.subject}</p>
           <pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap font-sans">{preview.body}</pre>
           <button className="btn btn-quiet mt-2" onClick={() => setPreview(null)}>Close</button>

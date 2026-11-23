@@ -69,7 +69,7 @@ function Editor({ campaign, onSaved }: { campaign: Campaign; onSaved: () => void
   }
 
   return (
-    <section className="mb-10 border border-rule bg-sheet p-5">
+    <section className="mb-10 card p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <input className="field letter max-w-md text-xl" value={name} onChange={(e) => setName(e.target.value)} aria-label="Search name" />
         <div className="flex flex-wrap gap-2 text-sm">
@@ -154,7 +154,7 @@ function Editor({ campaign, onSaved }: { campaign: Campaign; onSaved: () => void
 export default function Campaigns() {
   const { data, error, reload } = useLoad<Campaign[]>("/api/campaigns");
   return (
-    <Shell title="Searches" actions={<Link className="btn" href="/setup">Describe a new search</Link>}>
+    <Shell title="My search" intro="What the agent looks for. Describe a new search and it replaces this one." actions={<Link className="btn" href="/setup">Describe a new search</Link>}>
       <ErrorNote message={error} />
       {data && data.length === 0 && <Empty>No search yet. Describe the jobs you want in the setup chat and the agent builds the search from it.</Empty>}
       {(data || []).map((c) => <Editor key={c.id + c.state} campaign={c} onSaved={reload} />)}

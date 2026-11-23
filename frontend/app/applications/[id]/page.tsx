@@ -66,7 +66,7 @@ export default function ApplicationPage() {
             {data.posting.description && (
               <details className="mt-3 text-sm">
                 <summary className="cursor-pointer text-slate">Read the job ad</summary>
-                <p className="mt-2 max-h-96 max-w-prose overflow-y-auto whitespace-pre-wrap border border-rule bg-sheet p-3">{data.posting.description}</p>
+                <p className="mt-2 max-h-96 max-w-prose overflow-y-auto whitespace-pre-wrap card p-3">{data.posting.description}</p>
               </details>
             )}
             {a.skip_reason && <p className="mt-2 text-sm text-problem">{a.skip_reason}</p>}
@@ -92,7 +92,7 @@ export default function ApplicationPage() {
                 </div>
               </div>
             ) : (
-              <article className="letter mt-2 max-w-prose whitespace-pre-wrap border border-rule bg-sheet p-5 leading-7">
+              <article className="letter mt-2 max-w-prose whitespace-pre-wrap card p-5 leading-7">
                 <p className="mb-3 font-semibold">{a.subject}</p>
                 {a.body}
               </article>

@@ -40,7 +40,7 @@ function DraftCard({ a, onDone }: { a: Application; onDone: () => void }) {
 
   const long = a.body.length > 700;
   return (
-    <li className="border border-rule bg-sheet p-4 sm:p-5">
+    <li className="card p-4 sm:p-5">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-xl">{a.company || "Unknown company"}</h2>
         <span className="text-sm text-slate">Score {a.score} of 100 · expires {fmtDate(a.expires_at)}</span>
@@ -83,7 +83,7 @@ function OnSiteCard({ a, onDone }: { a: Application; onDone: () => void }) {
   }
 
   return (
-    <li className="border border-rule bg-sheet p-4">
+    <li className="card p-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h3 className="text-lg">{a.company || "Unknown company"}</h3>
         <span className="text-sm text-slate">Score {a.score} of 100</span>
@@ -116,7 +116,7 @@ export default function Drafts() {
   const loading = !drafts.data && !drafts.error;
 
   return (
-    <Shell title="Drafts">
+    <Shell title="Drafts" intro="Applications waiting for your approval.">
       <p className="mb-4 max-w-prose text-sm text-slate">
         Emails the agent wrote for you to check. Approve one and it goes out in your next send window.
       </p>

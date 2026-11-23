@@ -36,7 +36,7 @@ export default function CountryPicker({ value, onChange }: { value: string[]; on
       <div className="flex flex-wrap gap-2" aria-label="Chosen countries">
         {value.length === 0 && <span className="text-sm text-slate">Anywhere</span>}
         {value.map((code) => (
-          <span key={code} className="inline-flex items-center gap-1 border border-rule bg-sheet px-2 py-1 text-sm">
+          <span key={code} className="inline-flex items-center gap-1 card px-2 py-1 text-sm">
             {name(code)}
             <button type="button" className="text-slate hover:text-problem" aria-label={`Remove ${name(code)}`}
               onClick={() => onChange(value.filter((c) => c !== code))}>×</button>
@@ -59,7 +59,7 @@ export default function CountryPicker({ value, onChange }: { value: string[]; on
           }
         }} />
       {matches.length > 0 && (
-        <ul className="mt-1 border border-rule bg-sheet text-sm" role="listbox">
+        <ul className="mt-1 card text-sm" role="listbox">
           {matches.map((c) => (
             <li key={c.code}>
               <button type="button" className="flex w-full justify-between px-3 py-1 text-left hover:bg-rule" onClick={() => add(c.code)}>

@@ -76,7 +76,7 @@ export default function Inbox() {
   const other = (notes.data || []).filter((n) => !n.kind.startsWith("escalation"));
 
   return (
-    <Shell title="Inbox" actions={<button className="btn btn-quiet" disabled={syncing} onClick={sync}>{syncing ? "Checking…" : "Check for replies now"}</button>}>
+    <Shell title="Replies" intro="Employer replies that need you. Everything routine is answered by the agent." actions={<button className="btn btn-quiet" disabled={syncing} onClick={sync}>{syncing ? "Checking…" : "Check for replies now"}</button>}>
       <ErrorNote message={escs.error} />
       {escs.data && escs.data.length === 0 && <Empty>No reply is waiting for you. Interview invitations, offers and questions the agent cannot answer appear here.</Empty>}
       <ul className="space-y-6">{(escs.data || []).map((e) => <Item key={e.id} esc={e} onDone={escs.reload} />)}</ul>
@@ -85,7 +85,7 @@ export default function Inbox() {
           <h2 className="mt-10 text-xl">Notices</h2>
           <ul className="mt-3 space-y-2">
             {other.map((n) => (
-              <li key={n.id} className="border border-rule bg-sheet p-3 text-sm">
+              <li key={n.id} className="card p-3 text-sm">
                 <p className="font-semibold">{n.title}</p>
                 {n.body && <p className="mt-1 whitespace-pre-wrap">{n.body}</p>}
                 <p className="mt-2 flex gap-4 text-xs text-slate">

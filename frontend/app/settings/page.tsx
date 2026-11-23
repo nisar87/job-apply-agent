@@ -7,6 +7,7 @@ import JobGmail from "@/components/JobGmail";
 import MainEmail from "@/components/MainEmail";
 import ModelKey from "@/components/ModelKey";
 import Shell from "@/components/Shell";
+import { useCountries } from "@/components/CountryPicker";
 import { ErrorNote, errorText, useLoad } from "@/components/ui";
 import { api } from "@/lib/api";
 import type { Campaign } from "@/lib/types";
@@ -43,15 +44,20 @@ function WhatYouWant() {
       setError(errorText(e));
     }
   }
+  const { name: countryName } = useCountries();
   const list = searches.data || [];
+  const running = list.filter((c) => c.state !== "paused").length;
   return (
     <>
+      {running > 1 && <p className="mb-3 border-l-4 border-problem bg-sheet px-3 py-2 text-sm">{running} searches are running at the same time. Pause the ones you no longer want.</p>}
       <ErrorNote message={error || searches.error} />
       {list.length === 0 && <p className="text-sm">No job search yet. <Link className="underline" href="/setup">Set up your agent</Link></p>}
       {list.map((c) => (
         <div key={c.id} className="mb-4 border border-rule bg-sheet p-4 text-sm">
           <p className="font-semibold">{c.name}</p>
           <p className="text-slate">Looking for {c.config.keywords.join(", ") || "anything that fits"}</p>
+          <p className="text-slate">Where: {c.config.countries.length ? c.config.countries.map(countryName).join(", ") : "anywhere"}
+            {c.config.priority_countries?.length ? `; first: ${c.config.priority_countries.map(countryName).join(", ")}` : ""}</p>
           <fieldset className="mt-3">
             <legend className="font-semibold">State</legend>
             {STATES.map((s) => (

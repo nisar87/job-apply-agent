@@ -135,7 +135,7 @@ def create_draft(session: Session, llm: LLMClient, campaign: Campaign, match: Ma
     from app.services import tailoring
 
     attachment = {"name": version.file_name, "key": version.file_key}
-    if status != "failed":
+    if status != "failed" and campaign.state != "dry_run":      # "Try it first" never spends a call
         try:
             attachment = tailoring.tailored_attachment(
                 session, llm, user=user, posting=posting, match=match, version=version,

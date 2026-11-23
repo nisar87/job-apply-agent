@@ -104,6 +104,7 @@ def turn_on(monkeypatch):
     monkeypatch.setattr(get_settings(), "cv_tailor_url", "https://tailor.example/v1")
     monkeypatch.setattr(get_settings(), "cv_tailor_api_key", "key")
     monkeypatch.setattr(tailoring, "_paused_until", 0.0)
+    monkeypatch.setattr(get_settings(), "cv_tailor_min_terms", 1)
 
 
 def test_a_tailored_cv_is_stored_with_its_changes_and_one_request(client, llm, monkeypatch):
@@ -175,3 +176,71 @@ def test_the_request_key_changes_when_the_request_changes(client, llm, monkeypat
                                           purpose=purpose, client=svc.client())
             keys += [c[2] for c in svc.calls if c[0] == "POST"]
         assert len(keys) == 2 and keys[0] != keys[1] and all(len(k) <= 100 for k in keys)
+
+
+def _two_terms(match):
+    rubric = {"requirements": RUBRIC["requirements"] + [
+        {"requirement": "Index tuning", "status": "met", "essential": True, "evidence": "Built Python services"}]}
+    match.rubric = rubric
+
+
+def test_one_reworded_term_is_not_worth_a_call_but_two_are(client, llm, monkeypatch):
+    turn_on(monkeypatch)
+    monkeypatch.setattr(get_settings(), "cv_tailor_min_terms", 2)
+    with job(client, llm) as (s, user, version, posting, match):
+        svc = Service()
+        assert tailoring.tailored_attachment(s, Llm(), user=user, posting=posting, match=match, version=version,
+                                             purpose="email", client=svc.client()) is None
+        assert not svc.calls
+        _two_terms(match)
+        assert tailoring.tailored_attachment(s, Llm(), user=user, posting=posting, match=match, version=version,
+                                             purpose="email", client=svc.client()) is not None
+
+
+def test_a_cv_made_for_more_terms_serves_a_job_needing_fewer(client, llm, monkeypatch):
+    turn_on(monkeypatch)
+    with job(client, llm) as (s, user, version, posting, match):
+        from app.models import Application, Campaign
+        campaign = s.execute(select(Campaign).where(Campaign.user_id == user.id)).scalars().first()
+        _two_terms(match)
+        first = Service()
+        att = tailoring.tailored_attachment(s, Llm(), user=user, posting=posting, match=match, version=version,
+                                            purpose="email", client=first.client())
+        s.add(Application(user_id=user.id, posting_id=posting.id, campaign_id=campaign.id, cv_version_id=version.id, status="submitted", route="email",
+                          idempotency_key="k", subject="", body="", attachments=[att]))
+        s.flush()
+        match.rubric = RUBRIC                       # the next job needs only one of those terms
+        second = Service()
+        again = tailoring.tailored_attachment(s, Llm(), user=user, posting=posting, match=match, version=version,
+                                              purpose="email", client=second.client())
+        assert again == att and not second.calls
+
+
+def test_a_refusal_that_will_not_change_is_not_asked_again_but_a_busy_service_is(client, llm, monkeypatch):
+    turn_on(monkeypatch)
+    with job(client, llm) as (s, user, version, posting, match):
+        refuse = Service(status=422, error="could_not_tailor_faithfully")
+        assert tailoring.tailored_attachment(s, Llm(), user=user, posting=posting, match=match, version=version,
+                                             purpose="email", client=refuse.client()) is None
+        retry = Service()
+        assert tailoring.tailored_attachment(s, Llm(), user=user, posting=posting, match=match, version=version,
+                                             purpose="email", client=retry.client()) is None
+        assert not retry.calls                          # same kind of job, same terms: not asked again
+        busy = Service(status=503, error="unavailable")
+        monkeypatch.setattr(tailoring, "_refused_before", lambda *a: False)
+        tailoring.tailored_attachment(s, Llm(), user=user, posting=posting, match=match, version=version,
+                                      purpose="upload", client=busy.client())
+        assert busy.calls
+
+
+def test_a_person_has_a_daily_limit_on_calls(client, llm, monkeypatch):
+    turn_on(monkeypatch)
+    monkeypatch.setattr(get_settings(), "cv_tailor_daily_per_user", 1)
+    with job(client, llm) as (s, user, version, posting, match):
+        busy = Service(status=503, error="unavailable")
+        tailoring.tailored_attachment(s, Llm(), user=user, posting=posting, match=match, version=version,
+                                      purpose="email", client=busy.client())
+        again = Service()
+        assert tailoring.tailored_attachment(s, Llm(), user=user, posting=posting, match=match, version=version,
+                                             purpose="upload", client=again.client()) is None
+        assert not again.calls

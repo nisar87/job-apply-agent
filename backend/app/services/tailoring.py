@@ -9,15 +9,16 @@ import json
 import logging
 import time
 import uuid
+from datetime import UTC, datetime, timedelta
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app import audit, storage
 from app.config import get_settings
 from app.llm.base import LLMClient
-from app.models import Application, CVVersion, Match, Posting, User
+from app.models import Application, AuditLog, CVVersion, Match, Posting, User
 from app.services import cvs as cv_service
 from app.services.writing import fact_check
 
@@ -25,6 +26,7 @@ log = logging.getLogger(__name__)
 MAX_TERMS = 8
 _paused_until = 0.0   # after quota_exhausted the service is not asked again until then
 PAUSE_SECONDS = 3600
+TEMPORARY = {"unavailable", "internal_error", "rate_limited", "quota_exhausted", "timeout", "429", "500", "502", "503", "504"}
 VERSION = 1   # part of the idempotency key: raise it to make the service redo earlier requests
 
 
@@ -124,7 +126,7 @@ def emphasis_for(rubric: dict, cv_text: str) -> list[dict]:
 
 def should_tailor(match: Match, emphasis: list[dict]) -> bool:
     return (enabled() and time.time() >= _paused_until and match.decision in ("apply", "manual") and (match.total_score or 0) >= get_settings().cv_tailor_min_score
-            and bool(emphasis))
+            and len(emphasis) >= get_settings().cv_tailor_min_terms)
 
 
 def _cached(session: Session, user_id: uuid.UUID, family: str, terms: set[str], purpose: str) -> dict | None:
@@ -134,9 +136,24 @@ def _cached(session: Session, user_id: uuid.UUID, family: str, terms: set[str], 
     for attachments in rows:
         for a in attachments or []:
             t = a.get("tailored")
-            if t and t.get("family") == family and t.get("purpose") == purpose and set(t.get("terms", [])) == terms:
+            if t and t.get("family") == family and t.get("purpose") == purpose and terms <= set(t.get("terms", [])):
                 return a
     return None
+
+
+def _asked_enough_today(session: Session, user_id: uuid.UUID) -> bool:
+    start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    n = session.execute(select(func.count()).select_from(AuditLog).where(
+        AuditLog.user_id == user_id, AuditLog.tool == "tailor_cv", AuditLog.created_at >= start)).scalar_one()
+    return n >= get_settings().cv_tailor_daily_per_user
+
+
+def _refused_before(session: Session, user_id: uuid.UUID, family: str, terms: set[str]) -> bool:
+    """The service or our fact-check already refused this kind of job with these terms, and asking again changes nothing."""
+    since = datetime.now(UTC) - timedelta(days=get_settings().cv_tailor_retry_days)
+    rows = session.execute(select(AuditLog.result).where(
+        AuditLog.user_id == user_id, AuditLog.tool == "tailor_cv", AuditLog.created_at >= since)).scalars()
+    return any(r and r.get("permanent") and r.get("family") == family and terms <= set(r.get("terms", [])) for r in rows)
 
 
 def tailored_attachment(session: Session, llm: LLMClient, *, user: User, posting: Posting, match: Match, version: CVVersion,
@@ -150,6 +167,8 @@ def tailored_attachment(session: Session, llm: LLMClient, *, user: User, posting
     hit = _cached(session, user.id, family, terms, purpose)
     if hit:
         return hit
+    if _refused_before(session, user.id, family, terms) or _asked_enough_today(session, user.id):
+        return None
     fields = posting.fields or {}
     job_language = (fields.get("language") or "en")[:2].lower()
     if job_language != "en":
@@ -175,7 +194,7 @@ def tailored_attachment(session: Session, llm: LLMClient, *, user: User, posting
         facts = cv_service.get_fact_sheet(session, user.id)
         unsupported = fact_check(llm, text, version.profile, facts) if text else ["no text returned"]
         if unsupported:
-            audit.record(session, user_id=user.id, actor="agent", tool="tailor_cv", result={"used": False, "unsupported": unsupported[:5]},
+            audit.record(session, user_id=user.id, actor="agent", tool="tailor_cv", result={"used": False, "unsupported": unsupported[:5], "permanent": True, "family": family, "terms": sorted(terms)},
                          reason="the tailored CV stated something the original does not: the original CV is used")
             return None
         pdf = client.pdf(result)
@@ -184,7 +203,8 @@ def tailored_attachment(session: Session, llm: LLMClient, *, user: User, posting
             global _paused_until
             _paused_until = time.time() + PAUSE_SECONDS
         audit.record(session, user_id=user.id, actor="agent", tool="tailor_cv",
-                     result={"used": False, "error": getattr(exc, "code", type(exc).__name__)},
+                     result={"used": False, "error": getattr(exc, "code", type(exc).__name__), "family": family, "terms": sorted(terms),
+                             "permanent": str(getattr(exc, "code", "")) not in TEMPORARY and not isinstance(exc, httpx.HTTPError)},
                      reason=f"tailoring unavailable: {exc}"[:300])
         return None
     name = f"{(version.profile.get('name') or 'CV').replace(' ', '_')}_CV.pdf"

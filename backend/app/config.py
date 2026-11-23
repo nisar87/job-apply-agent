@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     cv_tailor_url: str = ""          # for example https://tailor-api.aicvstudio.app/v1
     cv_tailor_api_key: str = ""
     cv_tailor_min_score: float = 85.0
+    cv_tailor_min_terms: int = 2     # one reworded term is not worth a call; two or more are
+    cv_tailor_daily_per_user: int = 10   # calls to the service per person per day, successful or not
+    cv_tailor_retry_days: int = 7        # after a refusal that will not change, the same kind of job is not asked again for this long
     cv_tailor_poll_seconds: float = 5.0
     cv_tailor_wait_seconds: float = 300.0
 

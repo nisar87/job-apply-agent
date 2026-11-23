@@ -67,7 +67,7 @@ function Log() {
 
   return (
     <Shell title="Applications" actions={tab === "log" && <button className="btn btn-quiet" onClick={download}>Download CSV</button>}>
-      <div className="mb-4 flex gap-1 border-b border-ink text-sm" role="tablist">
+      <div className="mb-4 flex flex-wrap gap-1 border-b border-ink text-sm" role="tablist">
         {TABS.map((t) => (
           <button key={t.key} role="tab" aria-selected={tab === t.key} onClick={() => setTab(t.key)}
             className={`px-3 py-2 ${tab === t.key ? "bg-ink text-white" : "hover:bg-rule"}`}>{t.label}</button>

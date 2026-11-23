@@ -57,10 +57,14 @@ have not started.
 | Settings | Collapsed sections: what you want (state, daily number, how picky), CV and facts, where and how much, mail, reports, model keys, never contact, data and password |
 | Menu | Home, Applications, Settings (Admin for operators) |
 
+Checked in real Chrome (demo mode): `e2e/smoke.py` now runs sign-up, the four setup steps, discovery,
+automatic sending, Applications, Home and Settings and passes; `e2e/narrow.py` passes the 360-pixel width (no
+sideways scroll), control names and keyboard focus rings on six pages. The setup now also asks for the report
+address before it lets you continue, and the report email opens with the same short summary as Home.
+
 The old screens (Drafts, Inbox, Searches, Where we look, CVs, Account, setup chat at `/setup-chat`) still exist
 as deep links that Settings points to; they are removed after the owner signs off each new screen. Not done in
-phase 5: moving the CV, search-detail and block-list editors fully into Settings, rewriting `e2e/smoke.py` for the
-new flow, the keyboard-only and 360-pixel passes, and the three-new-users test.
+phase 5: moving the CV, search-detail and block-list editors fully into Settings, and the three-new-users test (people who have never seen it).
 
 ## Version 2, phase 6 (background and scale), on branch v2-build
 

@@ -10,7 +10,7 @@ import { ErrorNote, errorText, useLoad } from "@/components/ui";
 import { api } from "@/lib/api";
 import type { CV, CampaignConfig } from "@/lib/types";
 
-type Status = { has_cv: boolean; mail_connected: boolean };
+type Status = { has_cv: boolean; mail_connected: boolean; escalation_email: string | null };
 type Profile = {
   name?: string; location?: string; total_years_experience?: number; level?: string; role_families?: string[];
   skills?: { name: string }[]; languages?: { name: string; level?: string }[]; roles?: { title: string }[];
@@ -64,7 +64,7 @@ export default function Setup() {
   useEffect(() => {
     if (started || !status.data || !cvs.data) return;
     setStarted(true);
-    setStep(!status.data.has_cv ? 0 : !status.data.mail_connected ? 1 : 2);
+    setStep(!status.data.has_cv ? 0 : !status.data.mail_connected || !status.data.escalation_email ? 1 : 2);
   }, [status.data, cvs.data, started]);
   useEffect(() => {
     const rtw = facts.data?.right_to_work_countries;
@@ -162,11 +162,13 @@ export default function Setup() {
         <section className="mt-4 max-w-xl">
           <h2 className="text-xl">Your Gmail</h2>
           <p className="mt-1 text-sm text-slate">Applications go out from this address and replies come back to it. Use an address kept for job hunting.</p>
-          <JobGmail />
-          <div className="mt-6"><MainEmail /></div>
+          <JobGmail onConnected={status.reload} />
+          <div className="mt-6"><MainEmail onSaved={status.reload} /></div>
           <div className="mt-6 flex gap-2">
             <button className="btn btn-quiet" onClick={() => setStep(0)}>Back</button>
-            <button className="btn" disabled={!status.data?.mail_connected} onClick={() => setStep(2)}>Continue</button>
+            <button className="btn" disabled={!status.data?.mail_connected || !status.data?.escalation_email}
+              onClick={() => setStep(2)}>Continue</button>
+            {status.data?.mail_connected && !status.data?.escalation_email && <span className="self-center text-sm text-slate">Add your main email above to continue.</span>}
           </div>
         </section>
       )}

@@ -152,6 +152,11 @@ def render(user: User, d: dict, frequency: str) -> tuple[str, str]:
     lines = [f"Hi {first},", "", f"Here is what your job agent did {period} "
              f"({d['since'].astimezone(zone):%d %b %H:%M} to {d['now'].astimezone(zone):%d %b %H:%M}).", ""]
 
+    needs = len(d["waiting"]) + len(d["by_hand"]) + len(d["replies"])
+    lines += [f"In short: {n} applied · {len(d['replies'])} {'reply' if len(d['replies']) == 1 else 'replies'} · "
+              f"{d['checked']} jobs checked",
+              f"Needs you: {needs}" if needs else "Nothing needs you.", f"Open your agent: {base}/", ""]
+
     def block(title: str, items: list[dict], sent: bool = False) -> None:
         lines.append(f"{title} ({len(items)})")
         lines.append("-" * len(lines[-1]))
@@ -189,8 +194,8 @@ def render(user: User, d: dict, frequency: str) -> tuple[str, str]:
               f"  stopped by the quality checks:       {f['stopped']}",
               f"Emails sent:                           {f['sent']}",
               "Target reached." if not f["short_at"] else f"Where it fell short: {f['short_at']}", "",
-              f"Approve drafts: {base}/drafts", f"All applications: {base}/applications",
-              f"Change or stop this report: {base}/account", ""]
+              f"Open your agent: {base}/", f"All applications: {base}/applications",
+              f"Change or stop this report: {base}/settings#reports", ""]
     return subject, "\n".join(lines)
 
 

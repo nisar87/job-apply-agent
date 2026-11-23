@@ -183,11 +183,19 @@ jobs in the same role family whose essential terms match.
 | `evidence` | For each term, the CV line that supports it (so nothing new is invented) |
 | `omit` | Sections or items to shorten |
 | `max_pages` | Usually 2 |
-| `template` | `plain` for form uploads read by software, `designed` for email |
+| `purpose` | `upload` for form uploads read by software (the service picks its best plain, single-column design), `email` for a designed one |
+| `template` | Optional: a design named directly, overriding the choice made from `purpose` |
+| `user_ref` | An opaque identifier for the user, never an email address, so the service can delete that user's results on request |
 | `language` | Output language |
 
 **Response:** the PDF, the same content as text, a list of every change made, and a `request_id`. Answer
 within 60 seconds, or accept the request and call back.
+
+**Agreed with the service's side (23 November 2026):** called only from the agent's server, never a browser, so
+access is by API key and not by web origin or network address; address `tailor-api.aicvstudio.app`; the service
+keeps its own model budget and answers `429` with a `quota_exhausted` code when it is used up, on which the agent
+applies with the base CV; results are kept 7 days under the idempotency key (the same key with a different body is
+refused with `409`), and the agent stores each PDF itself on receipt; the response names the design used.
 
 **Rule the service must keep:** reorder, reword and shorten only. No fact that is not in `base_cv`. The
 agent runs its own fact check on the returned text and discards a CV that fails.

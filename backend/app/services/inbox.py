@@ -24,6 +24,7 @@ from app.models import (
     User,
 )
 from app.services import cvs as cv_service
+from app.services import forms as forms_service
 from app.services import rules
 from app.services.applications import mail_account
 from app.services.campaigns import CampaignConfig, get_config
@@ -473,15 +474,21 @@ def sync_inbox(session: Session, llm: LLMClient, user_id: uuid.UUID, now: dateti
     tracked_threads = set(session.execute(
         select(Application.thread_id).where(Application.user_id == user_id, Application.thread_id.is_not(None))
     ).scalars())
+    waiting = bool(session.execute(select(Application.id).where(
+        Application.user_id == user_id, Application.status == "unconfirmed", Application.route == "form")).first())
     for ref in refs:
         message = ref
         if not ref.sender:                              # a bare reference: fetch only if its thread is tracked
-            if ref.thread_id not in tracked_threads:
+            if ref.thread_id not in tracked_threads and not waiting:
                 ignored += 1
                 continue
             message = provider.get_message(account, ref.message_id)
         app = tracked_application(session, user_id, message, now)
         if app is None:
+            # A confirmation for a form that showed none is the one kind of unthreaded mail that is read; it is not stored.
+            if waiting and forms_service.confirm_from_email(session, user_id, message, now):
+                handled += 1
+                continue
             ignored += 1                                # unrelated mail is never stored
             continue
         result = _handle_one(session, llm, app, message, now)

@@ -58,7 +58,7 @@ class User(Base, TimestampMixin):
     plan: Mapped[str] = mapped_column(String(32), default="beta")
     status: Mapped[str] = mapped_column(String(32), default="active")  # active | paused | deleted
     is_operator: Mapped[bool] = mapped_column(Boolean, default=False)
-    daily_send_limit: Mapped[int] = mapped_column(Integer, default=20)
+    daily_send_limit: Mapped[int] = mapped_column(Integer, default=25)
     # Model access (see app/llm/access.py): the user's own Gemini key, encrypted, and the limits on each key.
     llm_api_key_enc: Mapped[str] = mapped_column(Text, default="", server_default="")
     platform_key_allowed: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")

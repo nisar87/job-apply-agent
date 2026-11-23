@@ -12,7 +12,7 @@ type Review = {
 const BASE = API_BASE;
 
 export default function FormReview({ id, status, onChange }: { id: string; status: string; onChange: () => void }) {
-  const review = useLoad<Review>(status === "form_ready" || status === "sent" ? `/api/applications/${id}/form` : null);
+  const review = useLoad<Review>(status === "form_ready" || status === "sent" || status === "unconfirmed" ? `/api/applications/${id}/form` : null);
   const [shot, setShot] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");

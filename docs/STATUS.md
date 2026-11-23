@@ -23,9 +23,22 @@ below has been deployed to the live site yet.
 | Same job under another link | Not applied to twice (same employer, same title) |
 | Claude provider | `app/llm/claude.py`; strong tasks on Claude when `ANTHROPIC_API_KEY` is set, Gemini for fast tasks and embeddings, automatic fallback in both directions, Claude paused 5 minutes after a key or credit failure. Tested with simulated models only; not yet run against the real Claude API |
 
-Not yet built from the roadmap: the labelled 200-posting regression set (needs the owner's "would apply" labels), per-provider spend column and key screens, form submission on the eight hiring systems (phase 3), the new interface (5), background scale (6), supply work (7), Gmail sign-in (8), CV tailoring client (9).
+## Version 2, phase 3 (form submission), on branch v2-build
 
-267 backend tests pass (with the migration database from `scripts/init-db.sql`); lint passes.
+| Change | Effect |
+| --- | --- |
+| Eight hiring systems | Greenhouse, Lever, Ashby, Workable, SmartRecruiters, Recruitee, Personio, Teamtailor are recognised, each with its own confirmation wording |
+| Full auto | In full-auto mode the agent submits on these systems without waiting; a generic form is never submitted automatically |
+| Unconfirmed | If no confirmation shows after the final click, the application is recorded as "unconfirmed" with a screenshot, counted against limits, and never retried by itself |
+| Email confirmation | A confirmation email naming the employer and role within 30 minutes turns "unconfirmed" into "sent" |
+| Daily limit | 10 a day at the start, 25 after a week with at least 90% confirmed; your own lower limit still applies |
+| Try it first | Already provided by the "Dry run" search state: forms are filled and screenshotted, nothing is submitted |
+
+Still open in phase 3: practice forms for all eight systems (the acceptance test) and the 30-job review on real jobs in dry run; both need your live account.
+
+Not yet built from the roadmap: the labelled 200-posting regression set (needs the owner's "would apply" labels), per-provider spend column and key screens, the new interface (5), background scale (6), supply work (7), Gmail sign-in (8), CV tailoring client (9).
+
+270 backend tests pass (with the migration database from `scripts/init-db.sql`); lint passes.
 
 Not yet done in phase 0: a physically separate live deployment (own Cloud Run service, database and Gmail
 connection) for the owner's real job hunt, so the test site is only ever a test site. That is infrastructure, needs

@@ -108,7 +108,7 @@ function OnSiteCard({ a, onDone }: { a: Application; onDone: () => void }) {
 
 export default function Drafts() {
   const drafts = useLoad<Application[]>("/api/applications?status=awaiting_approval,failed");
-  const onSite = useLoad<Application[]>("/api/applications?status=manual_apply,form_ready");
+  const onSite = useLoad<Application[]>("/api/applications?status=manual_apply,form_ready,unconfirmed");
   const reload = () => {
     drafts.reload();
     onSite.reload();

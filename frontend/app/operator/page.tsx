@@ -8,12 +8,16 @@ import { api } from "@/lib/api";
 
 type Overview = {
   global_pause: boolean;
-  users: { id: string; email: string; status: string; mail: string; failed_runs_24h: number; sent_24h: number }[];
+  users: { id: string; email: string; status: string; mail: string; failed_runs_24h: number; sent_24h: number; funnel_7d?: Funnel; last_pass?: { at: string; seconds: number; errors: string[] } | null }[];
+};
+type Funnel = {
+  new_jobs: number; checked: number; good: number; with_email: number; written: number; stopped: number; sent: number;
+  target: number; short_at: string;
 };
 type UserRow = {
   id: string; email: string; status: string; key_source: "own" | "platform" | "none"; has_own_key: boolean;
   platform_key_allowed: boolean; platform_cap_usd: number | null; cap_usd: number; daily_send_limit: number;
-  is_admin: boolean; spend_today_usd: number; real_sending: boolean; production: boolean;
+  is_admin: boolean; spend_today_usd: number; real_sending: boolean; production: boolean; proof_review: number; proof_reviewed: number;
 };
 type Platform = { key_policy: "platform" | "own" | "either"; default_cap_usd: number; platform_key_configured: boolean };
 type Health = { ok: boolean; alerts: { kind: string; detail: string }[] };
@@ -108,6 +112,29 @@ export default function Admin() {
         </section>
       )}
 
+      {overview.data && (
+        <section className="mb-8">
+          <h2 className="text-xl">Where jobs are lost, last 7 days</h2>
+          <p className="mt-1 text-sm text-slate">Each step from jobs found to applications sent, per user. The last column names the step that kept the week below its target.</p>
+          <div className="mt-2 overflow-x-auto">
+            <table className="ledger">
+              <thead><tr><th>User</th><th>New jobs</th><th>Checked</th><th>Good matches</th><th>With an address in the ad</th><th>Written</th><th>Stopped by checks</th><th>Sent</th><th>Target</th><th>Where it was lost</th><th>Last background pass</th></tr></thead>
+              <tbody>
+                {overview.data.users.map((u) => (
+                  <tr key={u.id}>
+                    <td>{u.email}</td>
+                    <td>{u.funnel_7d?.new_jobs ?? "-"}</td><td>{u.funnel_7d?.checked ?? "-"}</td><td>{u.funnel_7d?.good ?? "-"}</td>
+                    <td>{u.funnel_7d?.with_email ?? "-"}</td><td>{u.funnel_7d?.written ?? "-"}</td><td>{u.funnel_7d?.stopped ?? "-"}</td>
+                    <td>{u.funnel_7d?.sent ?? "-"}</td><td>{u.funnel_7d?.target ?? "-"}</td><td className="text-xs">{u.funnel_7d?.short_at || "Target met"}</td>
+                    <td className="text-xs">{u.last_pass ? `${new Date(u.last_pass.at).toLocaleString()}, ${u.last_pass.seconds}s${u.last_pass.errors.length ? `, problem: ${u.last_pass.errors[0]}` : ""}` : "not yet"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
       <SignupSettings />
 
       {users.data && (
@@ -115,7 +142,7 @@ export default function Admin() {
           <h2 className="text-xl">Users</h2>
           <div className="mt-2 overflow-x-auto">
             <table className="ledger">
-              <thead><tr><th>User</th><th>Gmail</th><th>AI key</th><th>May use your key</th><th>Daily limit (US$)</th><th>Spent today</th><th>Sends a day</th><th>Sent, 24 h</th><th>Failed runs</th><th title="On the test site applications go to the sandbox inbox unless this is ticked">Real sending</th><th></th></tr></thead>
+              <thead><tr><th>User</th><th>Gmail</th><th>AI key</th><th>May use your key</th><th>Daily limit (US$)</th><th>Spent today</th><th>Sends a day</th><th>Sent, 24 h</th><th>Failed runs</th><th title="On the test site applications go to the sandbox inbox unless this is ticked">Real sending</th><th title="The first applications that wait for your approval before they go out. Shows approved so far / how many">Reviewed first</th><th></th></tr></thead>
               <tbody>
                 {users.data.map((u) => {
                   const o = extra[u.id];
@@ -149,6 +176,10 @@ export default function Admin() {
                             patchUser(u.id, { real_sending: e.target.checked });
                           }} />
                       )}</td>
+                      <td className="whitespace-nowrap">{u.proof_reviewed} /{" "}
+                        <input type="number" min={0} max={500} className="w-14" aria-label={`Number of first applications ${u.email} approves one by one`}
+                          defaultValue={u.proof_review}
+                          onBlur={(e) => { const v = Number(e.target.value); if (v !== u.proof_review) patchUser(u.id, { proof_review: v }); }} /></td>
                       <td className="whitespace-nowrap"><button className="btn btn-quiet" onClick={() => act(() => api(`/api/operator/users/${u.id}/status?status=${u.status === "active" ? "paused" : "active"}`, { method: "POST" }), users.reload, overview.reload)}>
                         {u.status === "active" ? "Pause" : "Resume"}</button>
                         <button className="btn btn-quiet ml-1" title="A one-time link to choose a new password, valid for an hour"

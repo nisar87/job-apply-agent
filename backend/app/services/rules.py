@@ -19,7 +19,7 @@ from app.services.campaigns import CampaignConfig, SendWindow
 from app.services.matching import blocked_reason
 from app.services.postings import domain_of, posting_age_days, registered_domain
 
-SENT_STATES = ("sent", "acknowledged", "in_conversation", "interview", "offer", "rejected", "closed",
+SENT_STATES = ("sent", "unconfirmed", "acknowledged", "in_conversation", "interview", "offer", "rejected", "closed",
                "no_response", "undeliverable")
 
 
@@ -67,6 +67,25 @@ def sent_today(session: Session, user_id: uuid.UUID, zone: ZoneInfo, now: dateti
     return int(session.execute(q).scalar() or 0)
 
 
+START_LIMIT, EARNED_LIMIT = 10, 25
+
+
+def automatic_daily_limit(session: Session, user_id: uuid.UUID, now: datetime) -> int:
+    """10 applications a day to start, 25 once the user has been applying for a week and at least 90% of the last
+    week's submissions were confirmed (specification section 6). The user's own limit can only lower it."""
+    from app.models import Application as A
+
+    week = now - timedelta(days=7)
+    first = session.execute(select(func.min(A.sent_at)).where(A.user_id == user_id)).scalar()
+    if first is None or first > week:
+        return START_LIMIT
+    rows = session.execute(select(A.status).where(A.user_id == user_id, A.sent_at >= week)).scalars().all()
+    unconfirmed = sum(1 for r in rows if r == "unconfirmed")
+    if len(rows) >= START_LIMIT and (len(rows) - unconfirmed) / len(rows) >= 0.9:
+        return EARNED_LIMIT
+    return START_LIMIT
+
+
 def check_send(
     session: Session, app: Application, campaign: Campaign, config: CampaignConfig, user: User, posting: Posting,
     now: datetime | None = None,
@@ -86,6 +105,13 @@ def check_send(
         # The recipient is never free text: it must be the validated address stored on the posting.
         if (app.recipient or "").lower() != posting.contact_email.lower():
             raise RuleViolation("recipient_mismatch", "The recipient does not match the posting's contact address")
+    from app.services import live
+
+    proof = live.proof_review(user.id)
+    if proof and app.approved_at is None and live.sends_for_real(user.id) and live.reviewed_so_far(session, user.id) < proof:
+        # First real submissions: each one is looked at by the owner before it goes (roadmap phase 4).
+        raise RuleViolation("needs_approval", f"One of your first {proof} real applications: waiting for your approval",
+                            retry_later=True)
     if not (app.check_results or {}).get("passed"):
         raise RuleViolation("checks_failed", "The draft has not passed its checks")
     if app.score is not None and app.score < config.match_threshold and not app.override_threshold:
@@ -109,7 +135,7 @@ def check_send(
         raise RuleViolation("outside_window", "Outside the send window", retry_later=True)
     if sent_today(session, user.id, zone, now, campaign.id) >= config.daily_quota:
         raise RuleViolation("campaign_quota", "Today's quota for this search is used up", retry_later=True)
-    user_limit = min(user.daily_send_limit or 20, s.user_daily_send_ceiling)
+    user_limit = min(user.daily_send_limit or 25, automatic_daily_limit(session, user.id, now), s.user_daily_send_ceiling)
     if sent_today(session, user.id, zone, now) >= user_limit:
         raise RuleViolation("user_quota", "Today's limit for your account is used up", retry_later=True)
     # Cooldowns count from the last sent application (section 10).

@@ -31,7 +31,7 @@ admin makes a link under Admin → Users → Reset link. Account → Password ch
 `/operator` (shown as **Admin** in the menu) is for the addresses in `ADMIN_EMAILS` and users marked `is_operator`.
 It sets how Gemini keys work for everyone (`app/llm/access.py`):
 
-- **My key for everyone**: every user runs on `GEMINI_API_KEY`, within a daily limit per user.
+- **My key for everyone**: every user runs on `GEMINI_API_KEY`, within a daily limit per user. If `ANTHROPIC_API_KEY` is also set (as a Cloud Run secret, like the Gemini key), strong tasks run on Claude and Gemini is the automatic fallback in both directions. Users on their own Gemini key stay on Gemini.
 - **Their key, or mine if allowed** (default): a user's own key (Account → AI key, stored encrypted) when they add one,
   otherwise the operator's key for users allowed to use it.
 - **Everyone brings their own key**: users without a key are stopped until they add one.

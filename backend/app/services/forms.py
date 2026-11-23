@@ -8,7 +8,7 @@ step, stops the run and leaves the job on the manual-apply list.
 
 import re
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from urllib.parse import urlparse
 
 from sqlalchemy import select
@@ -40,6 +40,12 @@ HIRING_SYSTEMS = {
     "lever": {"hosts": ("lever.co",), "success": ("application submitted", "thanks for applying")},
     "personio": {"hosts": ("personio.de", "personio.com"), "success": ("thank you for your application", "vielen dank für ihre bewerbung")},
     "recruitee": {"hosts": ("recruitee.com",), "success": ("thank you", "application has been sent")},
+    "ashby": {"hosts": ("ashbyhq.com",), "success": ("application submitted", "thanks for applying", "your application has been")},
+    "workable": {"hosts": ("workable.com",), "success": ("application submitted", "thank you for applying", "thanks for applying")},
+    "smartrecruiters": {"hosts": ("smartrecruiters.com",),
+                        "success": ("thank you for applying", "your application has been submitted", "application sent")},
+    "teamtailor": {"hosts": ("teamtailor.com",), "success": ("thank you for your application", "thanks for applying",
+                                                            "we have received your application", "tack för din ansökan")},
 }
 GENERIC_SUCCESS = ("thank you for applying", "thank you for your application", "application received",
                    "application submitted", "vielen dank für ihre bewerbung", "bewerbung erhalten")
@@ -191,6 +197,14 @@ def plan_answers(llm: LLMClient, fields: list[FormField], *, user: User, profile
     return {"answers": answers, "files": files, "consents": consents, "missing": missing}
 
 
+def cv_file(app: Application, version: CVVersion) -> tuple[str, bytes]:
+    """The CV file this application carries: a tailored one when it was made, else the person's own."""
+    attachment = (app.attachments or [{}])[0]
+    if attachment.get("key"):
+        return attachment.get("name") or version.file_name, storage.load(attachment["key"])
+    return version.file_name, storage.load(version.file_key)
+
+
 def _fill(driver: BrowserDriver, fields: list[FormField], plan: dict, *, cv_name: str, cv_data: bytes, cover_text: str) -> None:
     by_id = {f.id: f for f in fields}
     for fid, value in plan["answers"].items():
@@ -272,7 +286,8 @@ def prepare_form(session: Session, llm: LLMClient, app: Application, driver: Bro
                             country=posting.country, cover_text=app.body)
         if plan["missing"]:
             raise FormStopped("the form asks for something that is not on your fact sheet: " + "; ".join(plan["missing"][:5]))
-        _fill(driver, fields, plan, cv_name=version.file_name, cv_data=storage.load(version.file_key), cover_text=app.body)
+        cv_name, cv_data = cv_file(app, version)
+        _fill(driver, fields, plan, cv_name=cv_name, cv_data=cv_data, cover_text=app.body)
         key, _ = storage.save(user.id, f"form-{app.id}.png", driver.screenshot())
         app.form_data = {
             "hiring_system": system, "form_url": form_url, "fields": [f.to_dict() for f in fields], "answers": plan["answers"],
@@ -358,6 +373,8 @@ def auto_submit_allowed(session: Session, user: User, campaign: Campaign, system
     """Automatic submission is per hiring system and only after a run of clean reviews (phase 3, step 4)."""
     if campaign.approval_mode == "review" or system == "generic":
         return False
+    if campaign.approval_mode == "full_auto":
+        return True      # version 2: the agent submits on the known hiring systems; the unconfirmed rule guards it
     return clean_reviews(session, user.id, system) >= get_settings().form_auto_submit_after
 
 
@@ -434,13 +451,23 @@ def submit_form(session: Session, app: Application, *, now: datetime | None = No
                 plan["answers"][fid] = app.form_data["answers"][old["id"]]
             if old["id"] in app.form_data["files"]:
                 plan["files"][fid] = app.form_data["files"][old["id"]]
-        _fill(driver, fields, plan, cv_name=version.file_name, cv_data=storage.load(version.file_key), cover_text=app.body)
+        cv_name, cv_data = cv_file(app, version)
+        _fill(driver, fields, plan, cv_name=cv_name, cv_data=cv_data, cover_text=app.body)
         driver.submit()
         text = driver.page_text().lower()
         markers = HIRING_SYSTEMS.get(system, {}).get("success", ()) + GENERIC_SUCCESS
-        if not any(m in text for m in markers):
-            raise FormStopped("the site did not confirm the submission; check the employer's page before trying again")
         proof_key, _ = storage.save(user.id, f"form-proof-{app.id}.png", driver.screenshot())
+        if not any(m in text for m in markers):
+            # The final click was made, so the application may have gone out: it is never retried automatically.
+            app.status, app.sent_at, app.skip_reason = "unconfirmed", now, (
+                "The site did not show a confirmation. Check the screenshot; a confirmation email may still arrive.")
+            app.form_data = {**app.form_data, "proof_key": proof_key, "submitted_at": now.isoformat()}
+            slots.mark_sent(session, app, now.astimezone(rules.user_zone(user)).date())
+            audit.record(session, user_id=user.id, actor="agent", tool="submit_form", entity_id=app.id,
+                         result={"submitted": False, "unconfirmed": True, "hiring_system": system},
+                         reason="no confirmation shown after the final click")
+            session.commit()
+            return app
     except FormStopped as stop:
         slots.release_place(session, app)
         app.status, app.skip_reason = "manual_apply", f"Apply by hand: {stop.reason}"
@@ -468,3 +495,39 @@ def submit_form(session: Session, app: Application, *, now: datetime | None = No
                  reason="approved by you" if approved_by_user else "submitted automatically after clean reviews")
     session.flush()
     return app
+
+
+CONFIRMATION_WINDOW = timedelta(minutes=30)
+
+
+def _words(text: str) -> list[str]:
+    return [w for w in re.findall(r"[a-z0-9äöüß+#.]{3,}", text.lower()) if w not in ("the", "and", "für", "und", "gmbh", "inc", "ltd")]
+
+
+def confirm_from_email(session: Session, user_id: uuid.UUID, message, now: datetime | None = None) -> Application | None:
+    """A confirmation email for an unconfirmed form application: it must arrive within 30 minutes of the final click
+    and name the employer and the role. Then the application counts as submitted (specification section 6)."""
+    apps = session.execute(
+        select(Application).where(Application.user_id == user_id, Application.status == "unconfirmed",
+                                  Application.route == "form")
+    ).scalars().all()
+    text = f"{message.sender} {message.subject} {message.body[:3000]}".lower()
+    for app in apps:
+        if app.sent_at is None or not timedelta(0) <= message.received_at - app.sent_at <= CONFIRMATION_WINDOW:
+            continue
+        posting = session.get(Posting, app.posting_id)
+        company = company_of(session, posting)
+        company_words = _words(company.name if company else "")
+        title_words = _words(posting.title)
+        if not company_words or not title_words:
+            continue
+        company_hit = any(w in text for w in company_words)
+        title_hit = sum(1 for w in title_words if w in text) >= max(1, (len(title_words) + 1) // 2)
+        if company_hit and title_hit:
+            app.status, app.skip_reason = "sent", ""
+            app.form_data = {**(app.form_data or {}), "confirmed_by": "email"}
+            audit.record(session, user_id=user_id, actor="agent", tool="confirm_form", entity_id=app.id,
+                         result={"confirmed": True}, reason="confirmation email from the employer")
+            session.flush()
+            return app
+    return None

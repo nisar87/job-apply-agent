@@ -7,7 +7,7 @@ import { api } from "@/lib/api";
 type Account = { id: string; address: string; provider: string; status: string };
 
 /** Connect a Gmail used only for job hunting, with a Google app password. */
-export default function JobGmail() {
+export default function JobGmail({ onConnected }: { onConnected?: () => void } = {}) {
   const mail = useLoad<Account[]>("/api/mail/account");
   const [address, setAddress] = useState("");
   const [code, setCode] = useState("");
@@ -28,6 +28,7 @@ export default function JobGmail() {
       setCode("");
       setNote("Connected. The agent will send your applications from this address.");
       mail.reload();
+      onConnected?.();
     } catch (err) {
       setError(errorText(err));
     } finally {

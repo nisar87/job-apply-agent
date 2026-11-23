@@ -14,7 +14,7 @@ const FREQUENCIES: { value: Me["report_frequency"]; label: string; detail: strin
 ];
 
 /** Where reports and important messages go: the user's main address, kept apart from the job Gmail. */
-export default function MainEmail() {
+export default function MainEmail({ onSaved }: { onSaved?: () => void } = {}) {
   const me = useLoad<Me>("/api/auth/me");
   const [address, setAddress] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -28,6 +28,7 @@ export default function MainEmail() {
       await api("/api/auth/me", { method: "PATCH", json });
       setNote(done);
       me.reload();
+      onSaved?.();
       return true;
     } catch (e) {
       setError(errorText(e));

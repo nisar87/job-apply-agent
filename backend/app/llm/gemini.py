@@ -99,7 +99,7 @@ class GeminiClient:
             elif m["role"] == "model":
                 # Pass the provider's own message back unchanged so any reasoning
                 # signatures attached to tool calls are preserved.
-                if m.get("raw") is not None:
+                if m.get("raw") is not None and not isinstance(m["raw"], list):   # a list is Claude's own message
                     contents.append(m["raw"])
                 else:
                     contents.append(types.Content(role="model", parts=[types.Part.from_text(text=m.get("text", ""))]))

@@ -167,3 +167,10 @@ def hiring_allows(labels: list[str], home: str) -> bool | None:
         elif home in group:
             return True
     return None if unclear else False
+
+
+def free_movement(a: str, b: str) -> bool:
+    """True when a person living in country a may work in country b without a permit: the EU, Norway, Iceland
+    and Switzerland count as one zone (the United Kingdom no longer does)."""
+    zone = _EU | {"no", "is", "ch", "li"}
+    return a in zone and b in zone

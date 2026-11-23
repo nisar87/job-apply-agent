@@ -203,9 +203,10 @@ def test_unconfirmed_or_changed_form_is_not_marked_sent(client, llm):
         forms.prepare_form(s, llm, app, FakeDriver(list(STANDARD)))
         forms.approve_form(s, app, NOW)
         silent = FakeDriver(list(STANDARD), success_text="Something went wrong")
-        with pytest.raises(forms.FormStopped, match="did not confirm"):
-            forms.submit_form(s, app, now=NOW, driver=silent)
-        assert app.status == "manual_apply" and app.sent_at is None
+        result = forms.submit_form(s, app, now=NOW, driver=silent)
+        # The final click was made, so it is recorded as unconfirmed, counted, and never retried by itself.
+        assert result.status == "unconfirmed" and app.sent_at is not None and silent.submitted
+        assert app.form_data["proof_key"]
 
 
 def test_form_obeys_send_rules_and_waits_for_the_window(client, llm):
@@ -229,10 +230,14 @@ def test_form_obeys_send_rules_and_waits_for_the_window(client, llm):
     set_driver_factory(None)
 
 
-def test_auto_submit_only_after_clean_reviews_and_never_generic(client, llm):
+def test_full_auto_submits_known_systems_but_never_a_generic_form(client, llm):
     w = form_app(client, llm, approval_mode="full_auto")
     with w.session() as s:
         user, campaign = s.get(User, w.user_id), s.get(Campaign, w.campaign_id)
+        for system in ("greenhouse", "lever", "ashby", "workable", "smartrecruiters", "recruitee", "personio", "teamtailor"):
+            assert forms.auto_submit_allowed(s, user, campaign, system)
+        assert not forms.auto_submit_allowed(s, user, campaign, "generic")
+        campaign.approval_mode = "auto_above"                 # in the middle modes clean reviews still earn it
         assert not forms.auto_submit_allowed(s, user, campaign, "greenhouse")
         from app import audit
 
@@ -240,7 +245,6 @@ def test_auto_submit_only_after_clean_reviews_and_never_generic(client, llm):
             audit.record(s, user_id=w.user_id, actor="user", tool="submit_form", result={"submitted": True, "hiring_system": "greenhouse"})
         assert forms.auto_submit_allowed(s, user, campaign, "greenhouse")
         assert not forms.auto_submit_allowed(s, user, campaign, "lever")
-        assert not forms.auto_submit_allowed(s, user, campaign, "generic")
         campaign.approval_mode = "review"
         assert not forms.auto_submit_allowed(s, user, campaign, "greenhouse")
 
@@ -391,3 +395,80 @@ def test_expired_form_draft_is_skipped(client, llm):
         # Apply-on-site items stay for two weeks, then leave the list instead of piling up forever.
         assert app_service.expire_drafts(s, w.user_id, NOW + timedelta(days=7)) == 0
         assert app_service.expire_drafts(s, w.user_id, NOW + timedelta(days=30)) == 1
+
+
+def test_all_eight_hiring_systems_are_recognised():
+    urls = {"greenhouse": "https://boards.greenhouse.io/x/jobs/1", "lever": "https://jobs.lever.co/x/1",
+            "ashby": "https://jobs.ashbyhq.com/x/1", "workable": "https://apply.workable.com/x/j/1",
+            "smartrecruiters": "https://jobs.smartrecruiters.com/X/1", "recruitee": "https://x.recruitee.com/o/y",
+            "personio": "https://x.jobs.personio.de/job/1", "teamtailor": "https://x.teamtailor.com/jobs/1"}
+    for name, url in urls.items():
+        assert forms.hiring_system(url) == name
+    assert forms.hiring_system("https://example.com/careers") == "generic"
+
+
+def test_a_confirmation_email_turns_unconfirmed_into_submitted(client, llm):
+    from datetime import timedelta
+    from types import SimpleNamespace
+
+    w = form_app(client, llm)
+    with w.session() as s:
+        app = s.get(Application, w.app_id)
+        posting = s.get(Posting, app.posting_id)
+        app.status, app.sent_at = "unconfirmed", NOW
+        s.flush()
+        from app.services.postings import company_of
+
+        company = company_of(s, posting).name
+        late = SimpleNamespace(sender="jobs@x.com", subject=f"Your application to {company}: {posting.title}", body="Thanks",
+                               received_at=NOW + timedelta(minutes=45))
+        assert forms.confirm_from_email(s, w.user_id, late) is None                      # after 30 minutes
+        other = SimpleNamespace(sender="a@b.com", subject="Your order", body="Receipt", received_at=NOW + timedelta(minutes=5))
+        assert forms.confirm_from_email(s, w.user_id, other) is None                     # not this employer or role
+        good = SimpleNamespace(sender="jobs@x.com", subject=late.subject, body="Thanks", received_at=NOW + timedelta(minutes=5))
+        assert forms.confirm_from_email(s, w.user_id, good).status == "sent"
+
+
+def test_the_daily_limit_starts_at_10_and_rises_to_25_after_a_good_week(client, llm):
+    from datetime import timedelta
+
+    w = form_app(client, llm)
+    with w.session() as s:
+        assert rules.automatic_daily_limit(s, w.user_id, NOW) == 10
+        base = s.get(Application, w.app_id)
+        base.sent_at = NOW - timedelta(days=8)
+        for i in range(12):
+            extra = posting_service.ingest(s, llm, raw(title=f"Role {i}", company=f"Firm {i}"), mail_check=always_ok)[0]
+            s.add(Application(user_id=w.user_id, campaign_id=base.campaign_id, posting_id=extra.id, status="sent",
+                              route="form", idempotency_key=f"lim-{i}", sent_at=NOW - timedelta(days=2)))
+        s.flush()
+        assert rules.automatic_daily_limit(s, w.user_id, NOW) == 25
+        for a in s.execute(select(Application).where(Application.idempotency_key.like("lim-%"))).scalars().all()[:3]:
+            a.status = "unconfirmed"
+        s.flush()
+        assert rules.automatic_daily_limit(s, w.user_id, NOW) == 10          # under 90% confirmed
+
+
+def test_the_first_real_submissions_each_wait_for_the_owners_approval(client, llm):
+    from app.services import live
+
+    w = form_app(client, llm, approval_mode="full_auto")
+    with w.session() as s:
+        user, campaign = s.get(User, w.user_id), s.get(Campaign, w.campaign_id)
+        app = s.get(Application, w.app_id)
+        posting = s.get(Posting, app.posting_id)
+        app.check_results = {"passed": True}
+        live.set_real(w.user_id, True)
+        live.set_proof_review(w.user_id, 30)
+        try:
+            with pytest.raises(rules.RuleViolation, match="first 30"):
+                rules.check_send(s, app, campaign, forms.get_config(campaign), user, posting, NOW)
+            app.approved_at = NOW                                   # the owner looked at it and agreed
+            try:
+                rules.check_send(s, app, campaign, forms.get_config(campaign), user, posting, NOW)
+            except rules.RuleViolation as e:
+                assert e.code != "needs_approval" or "first" not in e.message
+            assert live.reviewed_so_far(s, w.user_id) == 0
+        finally:
+            live.set_real(w.user_id, False)
+            live.set_proof_review(w.user_id, 0)

@@ -5,18 +5,12 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api, getToken, loginPath, setToken } from "@/lib/api";
 
-type Me = { id: string; email: string; name: string; is_admin?: boolean };
+type Me = { id: string; email: string; name: string; is_admin?: boolean; environment?: string; sends_for_real?: boolean };
 
 const NAV = [
-  { href: "/", label: "Today" },
+  { href: "/", label: "Home" },
   { href: "/applications", label: "Applications" },
-  { href: "/drafts", label: "Drafts" },
-  { href: "/inbox", label: "Inbox" },
-  { href: "/campaigns", label: "Searches" },
-  { href: "/sources", label: "Where we look" },
-  { href: "/cvs", label: "CVs and facts" },
-  { href: "/setup", label: "Setup chat" },
-  { href: "/account", label: "Account" },
+  { href: "/settings", label: "Settings" },
 ];
 
 export default function Shell({ title, children, actions }: { title: string; children: React.ReactNode; actions?: React.ReactNode }) {
@@ -25,12 +19,15 @@ export default function Shell({ title, children, actions }: { title: string; chi
   const [me, setMe] = useState<Me | null>(null);
   const [mailBroken, setMailBroken] = useState(false);
   const [noKey, setNoKey] = useState("");
+  const [signedIn, setSignedIn] = useState(false);
 
   useEffect(() => {
     if (!getToken()) {
       router.replace(loginPath());
       return;
     }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSignedIn(true);
     api<Me>("/api/auth/me").then(setMe).catch(() => undefined);
     api<{ status: string }[]>("/api/mail/account")
       .then((accounts) => setMailBroken(accounts.some((a) => a.status === "error")))
@@ -45,6 +42,12 @@ export default function Shell({ title, children, actions }: { title: string; chi
   function signOut() {
     setToken(null);
     router.replace("/login");
+  }
+
+  // A signed-out visitor never sees an internal page, not even its empty frame: the page below is not
+  // mounted until a sign-in is present, so none of its requests start either.
+  if (!signedIn) {
+    return <p className="p-8 text-sm text-slate" role="status">Taking you to sign in…</p>;
   }
 
   return (
@@ -73,6 +76,13 @@ export default function Shell({ title, children, actions }: { title: string; chi
         </div>
       </nav>
       <main className="min-w-0 flex-1 px-4 py-6 md:px-8 md:py-8">
+        {me && me.environment !== "production" && (
+          <p className={`mb-4 border-l-4 bg-sheet px-3 py-2 text-sm ${me.sends_for_real ? "border-problem" : "border-rule"}`} role="status">
+            {me.sends_for_real
+              ? "Test site, but this account is switched to real sending: its applications reach employers."
+              : "Test site: nothing you send here reaches an employer. Applications go to a test inbox."}
+          </p>
+        )}
         {mailBroken && (
           <p className="mb-4 border-l-4 border-problem bg-sheet px-3 py-2 text-sm" role="alert">
             Gmail stopped accepting the agent&apos;s sign-in, so nothing is being sent or read.{" "}

@@ -100,7 +100,7 @@ def test_cv_facts_fill_only_empty_fact_sheet_fields(client, llm):
     with w.session() as s:
         filled = cv_service.prefill_fact_sheet(s, w.user_id, profile)
         facts = cv_service.get_fact_sheet(s, w.user_id)
-    assert set(filled) == {"home_country", "location", "phone", "languages"}
+    assert set(filled) == {"home_country", "location", "phone", "languages", "right_to_work_countries"}
     assert facts["home_country"] == "pk" and facts["languages"] == "English C1, Urdu" and facts["notice_period"] == "1 month"
     with w.session() as s:
         cv_service.save_fact_sheet(s, w.user_id, {**facts, "location": "Lahore"})

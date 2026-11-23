@@ -19,8 +19,9 @@ def get_llm() -> LLMClient:
 
         return demo_llm()
     from app.llm.gemini import GeminiClient
+    from app.llm.routing import with_claude
 
-    return GeminiClient()
+    return with_claude(GeminiClient())
 
 
 __all__ = ["LLMClient", "LLMResult", "MeteredLLM", "SpendCapExceeded", "ToolCall", "ToolSpec", "get_llm", "set_llm_override"]

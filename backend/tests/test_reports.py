@@ -23,7 +23,7 @@ def test_the_report_names_each_job_its_link_the_address_and_where_it_came_from(c
     assert "1. Backend Engineer at Acme GmbH" in body and f"Job ad: {posting.url}" in body
     assert "Sent to: jobs@acme.at" in body and "Address: written in the job ad" in body
     assert "Data Engineer at Beta GmbH" in body and "Would go to: hr@beta.at" in body
-    assert "/account" in body and waiting.status == "awaiting_approval"
+    assert "/settings#reports" in body and waiting.status == "awaiting_approval"
 
 
 def test_the_report_shows_each_step_from_new_jobs_to_emails_sent(client, llm):

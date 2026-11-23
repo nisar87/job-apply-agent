@@ -51,6 +51,13 @@ PROFILE_SCHEMA = {
         "certifications": {"type": "array", "items": {"type": "string"}},
         "links": {"type": "array", "items": {"type": "string"}},
         "total_years_experience": {"type": "number"},
+        "level": {"type": "string", "enum": ["junior", "mid", "senior", "lead", "executive"],
+                  "description": "The level the CV shows today: senior = 5+ years of independent ownership; lead = "
+                                 "leads a team or designs systems; executive = head of, director or above"},
+        "role_families": {"type": "array", "items": {"type": "string", "enum": [
+            "backend", "frontend", "fullstack", "mobile", "data", "ml", "devops", "qa", "security", "embedded",
+            "management", "design", "product", "sales", "support"]},
+            "description": "The kinds of work the CV's recent roles show, most important first, at most 3"},
         "search_keywords": {
             "type": "array", "items": {"type": "string"},
             "description": "Up to 12 short search terms a matching job posting would contain, taken only from what "
@@ -67,7 +74,39 @@ FACT_SHEET_FIELDS = [
     "work_authorisation",  # {country code: "citizen" | "permit" | "needs_sponsorship"}
     "notice_period", "earliest_start", "salary_expectation", "salary_currency",
     "willing_to_relocate", "willing_to_travel", "languages", "phone", "interview_availability", "location",
+    # Version 2 gate inputs (derived from the CV, confirmed once by the user)
+    "level",  # junior | mid | senior | lead | executive
+    "role_families",  # list of role family names the agent may apply for
+    "work_languages",  # list of ISO 639-1 codes the user can work in
+    "right_to_work_countries",  # list of ISO codes where the user needs no sponsorship; [] = nowhere
+    "exclude_home_country",  # true: never apply to jobs located in home_country
+    "accept_sponsorship",  # false: never apply abroad on the strength of a visa offer; only where right to work exists
 ]
+
+V2_KEYS = ("level", "role_families", "work_languages", "right_to_work_countries", "exclude_home_country",
+           "accept_sponsorship")
+
+LANGUAGE_CODES = {
+    "english": "en", "german": "de", "deutsch": "de", "urdu": "ur", "hindi": "hi", "arabic": "ar", "french": "fr",
+    "spanish": "es", "italian": "it", "dutch": "nl", "portuguese": "pt", "polish": "pl", "turkish": "tr",
+    "russian": "ru", "chinese": "zh", "japanese": "ja", "punjabi": "pa", "pashto": "ps",
+}
+
+
+def work_language_codes(profile: dict) -> list[str]:
+    """ISO codes of the languages the CV shows at working level. A language listed without a level counts;
+    a level of 'basic', 'beginner', 'elementary' or 'A1/A2' does not."""
+    codes: list[str] = []
+    for lang in profile.get("languages") or []:
+        if not isinstance(lang, dict) or not lang.get("name"):
+            continue
+        level = str(lang.get("level") or "").lower()
+        if any(w in level for w in ("basic", "beginner", "elementary", "a1", "a2", "limited")):
+            continue
+        code = LANGUAGE_CODES.get(str(lang["name"]).strip().lower())
+        if code and code not in codes:
+            codes.append(code)
+    return codes
 
 
 class CVError(ValueError):
@@ -291,7 +330,12 @@ def prefill_fact_sheet(session: Session, user_id: uuid.UUID, profile: dict) -> l
     langs = [" ".join(str(x) for x in (lang.get("name"), lang.get("level")) if x)
              for lang in profile.get("languages") or [] if isinstance(lang, dict) and lang.get("name")]
     found = {"home_country": normalize(profile.get("country") or "") or "", "location": profile.get("location") or "",
-             "phone": profile.get("phone") or "", "languages": ", ".join(langs)}
+             "phone": profile.get("phone") or "", "languages": ", ".join(langs),
+             "level": profile.get("level") or "", "role_families": list(profile.get("role_families") or [])[:3],
+             "work_languages": work_language_codes(profile)}
+    home = found["home_country"]
+    if home:
+        found["right_to_work_countries"] = [home]   # everyone may work where they are a citizen or live
     row = session.execute(select(FactSheet).where(FactSheet.user_id == user_id)).scalar_one_or_none()
     data = dict(row.data) if row else {}
     filled = [k for k, v in found.items() if v and not data.get(k)]
@@ -319,7 +363,10 @@ def save_fact_sheet(session: Session, user_id: uuid.UUID, data: dict) -> dict:
         row = FactSheet(user_id=user_id, data=clean)
         session.add(row)
     else:
-        row.data = clean
+        # Gate inputs the form does not send (level, role families, languages, right to work) are kept.
+        kept = {k: v for k, v in (row.data or {}).items() if k in V2_KEYS and k not in clean}
+        row.data = {**clean, **kept}
+        clean = dict(row.data)
     session.flush()
     audit.record(session, user_id=user_id, actor="user", tool="save_fact_sheet", input={"fields": sorted(clean)})
     return clean

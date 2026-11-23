@@ -306,6 +306,10 @@ def test_operator_console_and_kill_switches(client, llm):
         s.get(User, w.user_id).is_operator = True
     overview = client.get("/api/operator/overview", headers=w.headers).json()
     assert overview["users"][0]["mail"] == "connected" and overview["users"][0]["sent_24h"] >= 0
+    funnel = overview["users"][0]["funnel_7d"]
+    assert {"new_jobs", "checked", "good", "with_email", "written", "sent", "target", "short_at"} <= set(funnel)
+    me = client.get("/api/auth/me", headers=w.headers).json()
+    assert me["environment"] == "test" and me["sends_for_real"] is False
     other = make_world(client, llm, email="b@example.com", mail=w.mail)
     assert client.post(f"/api/operator/users/{other.user_id}/status?status=paused", headers=other.headers).status_code == 404
     assert client.post(f"/api/operator/users/{other.user_id}/status?status=paused", headers=w.headers).status_code == 200

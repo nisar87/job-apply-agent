@@ -126,6 +126,7 @@ class UserLimitsIn(BaseModel):
     daily_send_limit: int | None = Field(default=None, ge=0, le=100)
     is_operator: bool | None = None
     real_sending: bool | None = None  # test site only: this user's applications reach employers
+    proof_review: int | None = Field(default=None, ge=0, le=500)  # the first N real submissions need the user's approval
 
 
 @router.patch("/operator/users/{target}")
@@ -148,8 +149,14 @@ def set_user_limits(target: uuid.UUID, body: UserLimitsIn, me: uuid.UUID = Depen
             user.is_operator = body.is_operator
         if body.real_sending is not None:
             live.set_real(user.id, body.real_sending)
+            if body.real_sending and body.proof_review is None and not live.proof_review(user.id):
+                live.set_proof_review(user.id, live.PROOF_DEFAULT)      # real sending starts with 30 reviewed submissions
             audit.record(s, user_id=user.id, actor="operator", tool="real_sending",
                          input={"on": body.real_sending, "by": str(me)})
+        if body.proof_review is not None:
+            live.set_proof_review(user.id, body.proof_review)
+            audit.record(s, user_id=user.id, actor="operator", tool="proof_review",
+                         input={"count": body.proof_review, "by": str(me)})
         s.flush()
         return _user_row(s, user, access.platform_settings(), {})
 
@@ -206,6 +213,7 @@ def _user_row(s: Session, u: User, settings: dict, spend: dict) -> dict:
         "is_admin": u.is_operator or get_settings().is_admin_email(u.email),
         "spend_today_usd": round(float(spend.get(u.id, 0.0)), 4),
         "real_sending": live.sends_for_real(u.id), "production": get_settings().is_production,
+        "proof_review": live.proof_review(u.id), "proof_reviewed": live.reviewed_so_far(s, u.id),
     }
 
 

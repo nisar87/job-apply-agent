@@ -44,7 +44,7 @@ class ClaudeClient:
                 if exc.status_code in (401, 402, 403) or (exc.status_code == 400 and "credit" in str(exc).lower()):
                     raise ClaudeUnavailable(f"Claude refused the key or credit ({exc.status_code})") from exc
                 if wait is None or exc.status_code not in RETRY_CODES:
-                    raise ClaudeUnavailable(f"Claude answered {exc.status_code}") from exc
+                    raise ClaudeUnavailable(f"Claude answered {exc.status_code}: {str(getattr(exc, 'message', exc))[:300]}") from exc
                 log.warning("Claude answered %s, retrying in %ss", exc.status_code, wait)
             except anthropic.APITimeoutError as exc:       # a call that stalls is not repeated: Gemini answers instead
                 raise ClaudeUnavailable("Claude did not answer in time") from exc

@@ -23,7 +23,7 @@ env:
   GOOGLE_CLIENT_ID: 644630290784-j7a8potb2ja59dctu8qipef2cn3r95lo.apps.googleusercontent.com
   SIGNUP_ALLOWLIST: nisar.3dcellular@gmail.com
   SANDBOX_RECIPIENT: nisar_87@hotmail.com
-  CV_TAILOR_URL: https://tailor-api-742725737559.us-central1.run.app/v1   # AI CV Studio's tailoring service; the key is the CV_TAILOR_API_KEY secret
+  CV_TAILOR_URL: https://tailor-api.aicvstudio.app/v1   # AI CV Studio's tailoring service; the key is the CV_TAILOR_API_KEY secret
 
 jobs:
   deploy:

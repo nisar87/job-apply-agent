@@ -1,4 +1,11 @@
-"""Finding where to email an application when the posting itself shows only a web form.
+"""Helpers for reading employer addresses and sites.
+
+Version 2 rule: an application email goes only to an address printed in the job ad itself. Looking up an
+address on the employer's own website (`find`) is no longer used on the sending path; jobs that show only a
+web form are applied to through that form instead (phase 3).
+
+Earlier description, kept for the helpers below:
+Finding where to email an application when the posting itself shows only a web form.
 
 Only addresses a company publishes itself are used: on its careers page, its contact page or its legal notice
 (in Germany and Austria every company site must have an Impressum with an email address). Addresses are never
@@ -158,28 +165,3 @@ def find(company: str, url: str, description: str, fetch=None, mail_check=None) 
         if best and confirmed and check(site):
             return best[1], best[2]
     return None
-
-
-def try_find(session, posting) -> bool:
-    """Look once for a posting that has only a web form; on success it becomes an email posting.
-    The outcome is kept in posting.fields, so the same posting is never looked up twice."""
-    from app.services.postings import company_of
-
-    fields = dict(posting.fields or {})
-    if posting.contact_email or fields.get("contact_lookup"):
-        return bool(posting.contact_email)
-    company_row = company_of(session, posting)
-    company = company_row.name if company_row else str(fields.get("company") or "")
-    if company.strip().lower() in ("", "unknown", "unknown company"):
-        company = ""
-    try:
-        hit = find(company, posting.url or "", posting.description or "")
-    except Exception as exc:  # noqa: BLE001 - a lookup must never stop scoring
-        log.warning("contact lookup failed for %s: %s", posting.url, type(exc).__name__)
-        hit = None
-    fields["contact_lookup"] = "found" if hit else "none"
-    if hit:
-        posting.contact_email, posting.apply_route = hit[0], "email"
-        fields["contact_email"], fields["contact_source"] = hit[0], hit[1]
-    posting.fields = fields
-    return bool(hit)

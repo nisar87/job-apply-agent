@@ -48,7 +48,7 @@ def test_the_employers_own_site_is_searched_and_only_its_own_published_address_i
     assert contacts.find("Delta GmbH", "https://www.stepstone.de/job/9", "", fetch=fetch, mail_check=always_ok) is None
 
 
-def test_a_good_web_form_job_becomes_an_email_job_when_the_employer_publishes_an_address(client, llm):
+def test_a_web_form_job_is_never_given_an_address_from_the_employers_website(client, llm):
     w = make_world(client, llm)
     fetch, visited = site({"https://www.formy.de/karriere": "Formy GmbH sucht dich! Bewerbung an jobs@formy.de"})
     contacts.set_fetcher(fetch)
@@ -59,16 +59,8 @@ def test_a_good_web_form_job_becomes_an_email_job_when_the_employer_publishes_an
                                                          requirements="python"), mail_check=always_ok)[0]
             assert posting.apply_route == "form"
             match = matching.evaluate(s, llm, campaign, get_config(campaign), posting, {}, [])
-            assert match.decision == "apply"
-            assert (posting.contact_email, posting.apply_route) == ("jobs@formy.de", "email")
-            assert posting.fields["contact_source"] == "https://www.formy.de/karriere"
-
-            # No address published: it stays an on-site job, and the site is not searched again.
-            other = posting_service.ingest(s, llm, raw(title="Data Engineer", company="Quiet AG", email="",
-                                                       requirements="python"), mail_check=always_ok)[0]
-            assert matching.evaluate(s, llm, campaign, get_config(campaign), other, {}, []).decision == "manual"
-            asked = len(visited)
-            assert contacts.try_find(s, other) is False and len(visited) == asked
-            assert other.fields["contact_lookup"] == "none"
+            assert match.decision == "manual"
+            assert (posting.contact_email, posting.apply_route) == ("", "form") or not posting.contact_email
+            assert visited == []          # the employer's site is not even visited
     finally:
         contacts.set_fetcher(None)

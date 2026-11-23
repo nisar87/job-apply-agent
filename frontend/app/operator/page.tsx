@@ -8,7 +8,11 @@ import { api } from "@/lib/api";
 
 type Overview = {
   global_pause: boolean;
-  users: { id: string; email: string; status: string; mail: string; failed_runs_24h: number; sent_24h: number }[];
+  users: { id: string; email: string; status: string; mail: string; failed_runs_24h: number; sent_24h: number; funnel_7d?: Funnel }[];
+};
+type Funnel = {
+  new_jobs: number; checked: number; good: number; with_email: number; written: number; stopped: number; sent: number;
+  target: number; short_at: string;
 };
 type UserRow = {
   id: string; email: string; status: string; key_source: "own" | "platform" | "none"; has_own_key: boolean;
@@ -105,6 +109,28 @@ export default function Admin() {
               <span className="text-xs text-slate">Now ${p.default_cap_usd.toFixed(2)} a day. You can change it per user below.</span>
             </form>
           )}
+        </section>
+      )}
+
+      {overview.data && (
+        <section className="mb-8">
+          <h2 className="text-xl">Where jobs are lost, last 7 days</h2>
+          <p className="mt-1 text-sm text-slate">Each step from jobs found to applications sent, per user. The last column names the step that kept the week below its target.</p>
+          <div className="mt-2 overflow-x-auto">
+            <table className="ledger">
+              <thead><tr><th>User</th><th>New jobs</th><th>Checked</th><th>Good matches</th><th>With an address in the ad</th><th>Written</th><th>Stopped by checks</th><th>Sent</th><th>Target</th><th>Where it was lost</th></tr></thead>
+              <tbody>
+                {overview.data.users.map((u) => (
+                  <tr key={u.id}>
+                    <td>{u.email}</td>
+                    <td>{u.funnel_7d?.new_jobs ?? "-"}</td><td>{u.funnel_7d?.checked ?? "-"}</td><td>{u.funnel_7d?.good ?? "-"}</td>
+                    <td>{u.funnel_7d?.with_email ?? "-"}</td><td>{u.funnel_7d?.written ?? "-"}</td><td>{u.funnel_7d?.stopped ?? "-"}</td>
+                    <td>{u.funnel_7d?.sent ?? "-"}</td><td>{u.funnel_7d?.target ?? "-"}</td><td className="text-xs">{u.funnel_7d?.short_at || "Target met"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </section>
       )}
 

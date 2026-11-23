@@ -1,8 +1,27 @@
 # Build status
 
-Last updated 15 November 2026, after the private staging deployment.
+Last updated 23 November 2026. The version 2 plan is approved (`docs/MASTER_PRODUCT_SPEC_V2.md`,
+`docs/IMPLEMENTATION_ROADMAP_V2.md`); work is on branch `v2-build`, reviewed as a pull request, and nothing
+below has been deployed to the live site yet.
 
-## Since the first live runs (15 November 2026)
+## Version 2, phase 0 (safety and truth), on branch v2-build
+
+| Change | Effect |
+| --- | --- |
+| Employer addresses are no longer looked up on company websites | An application email goes only to an address printed in the job ad. A job that shows only a web form waits for form submission (phase 3). Removes the date-dependent `test_contacts` failure along with the lookup |
+| Signed-out visitors | Internal pages render nothing, and start no requests, until a sign-in is present |
+| Funnel per user | Admin page shows, for each user over 7 days: new jobs, checked, good matches, with an address in the ad, written, stopped, sent, target, and the step where the target was lost |
+| Test or live is always visible | Every signed-in page on a non-production site shows a banner; it turns to a warning when the account is switched to real sending. `/api/auth/me` returns `environment` and `sends_for_real` |
+
+250 backend tests pass (with the migration database from `scripts/init-db.sql`); lint and type check pass.
+
+Not yet done in phase 0: a physically separate live deployment (own Cloud Run service, database and Gmail
+connection) for the owner's real job hunt, so the test site is only ever a test site. That is infrastructure, needs
+the owner's approval to deploy, and is the first item to do together before any real submission work.
+
+## Earlier history
+
+### Since the first live runs (15 November 2026)
 
 | Added | Notes |
 | --- | --- |

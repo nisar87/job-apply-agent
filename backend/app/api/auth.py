@@ -61,11 +61,17 @@ class UserOut(BaseModel):
     style_guide: str
     sample_emails: list
     is_admin: bool = False
+    environment: str = "development"   # production | staging | development | test
+    sends_for_real: bool = False       # true when this user's applications reach employers
 
 
 def _user_out(user: User) -> UserOut:
     out = UserOut.model_validate(user, from_attributes=True)
     out.is_admin = bool(user.is_operator or get_settings().is_admin_email(user.email))
+    from app.services import live
+
+    out.environment = get_settings().app_env
+    out.sends_for_real = live.sends_for_real(user.id)
     return out
 
 

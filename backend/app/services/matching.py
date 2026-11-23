@@ -10,7 +10,6 @@ from app.countries import hiring_allows
 from app.countries import name_of as country_name
 from app.llm.base import LLMClient
 from app.models import CV, Application, Block, Campaign, CVVersion, GlobalBlock, Match, Posting
-from app.services import contacts
 from app.services import cvs as cv_service
 from app.services.campaigns import DEFAULT_WEIGHTS, CampaignConfig
 from app.services.postings import (
@@ -291,8 +290,8 @@ def evaluate(
     if pick is None:
         match.decision = "skip"
         match.reason = f"best score {best['total']} is below your threshold of {config.match_threshold}"
-    elif posting.apply_route != "email" and not contacts.try_find(session, posting):
-        # Only now, for a job worth applying to, is the employer's own site searched for an address.
+    elif posting.apply_route != "email":
+        # Only an address printed in the ad is ever emailed; a web-form job waits for form submission.
         match.decision, match.reason = "manual", "this employer only accepts applications through a web form"
     else:
         match.decision, match.reason = "apply", f"score {best['total']} with CV '{best['cv'].label}'"

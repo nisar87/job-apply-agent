@@ -46,7 +46,7 @@ def test_each_policy_picks_the_right_key(client, llm):
         assert access.source_for(user) == "none"
         set_llm_override(None)
         try:
-            with pytest.raises(access.NoModelKey, match="add your own key"):
+            with pytest.raises(access.NoModelKey, match="add a Claude or Gemini key"):
                 access.client_for(s, w.user_id)
         finally:
             set_llm_override(llm)

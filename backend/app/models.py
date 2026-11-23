@@ -61,6 +61,7 @@ class User(Base, TimestampMixin):
     daily_send_limit: Mapped[int] = mapped_column(Integer, default=25)
     # Model access (see app/llm/access.py): the user's own Gemini key, encrypted, and the limits on each key.
     llm_api_key_enc: Mapped[str] = mapped_column(Text, default="", server_default="")
+    claude_api_key_enc: Mapped[str] = mapped_column(Text, default="", server_default="")   # the user's own Claude key
     platform_key_allowed: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     platform_cap_usd: Mapped[float | None] = mapped_column(Float, nullable=True)  # set by the admin; None = default
     own_key_cap_usd: Mapped[float | None] = mapped_column(Float, nullable=True)   # set by the user; None = no cap

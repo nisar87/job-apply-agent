@@ -119,7 +119,7 @@ def test_approve_with_edit_and_reject_flow(client, llm):
 def test_fact_sheet_and_profile_edit(client, llm):
     w = make_world(client, llm)
     saved = client.put("/api/fact-sheet", headers=w.headers, json={"notice_period": "2 months", "hacker_field": "x"}).json()
-    assert saved == {"notice_period": "2 months"}
+    assert saved["notice_period"] == "2 months" and "hacker_field" not in saved
     cv = client.get("/api/cvs", headers=w.headers).json()[0]
     profile = client.get(f"/api/cvs/{cv['id']}/profile", headers=w.headers).json()["profile"]
     profile["skills"].append({"name": "terraform"})

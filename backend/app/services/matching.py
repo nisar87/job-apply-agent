@@ -6,7 +6,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.countries import hiring_allows
+from app.countries import free_movement, hiring_allows
 from app.countries import name_of as country_name
 from app.llm.base import LLMClient
 from app.models import CV, Application, Block, Campaign, CVVersion, GlobalBlock, Match, Posting
@@ -81,6 +81,52 @@ def blocked_reason(session: Session, user_id: uuid.UUID, posting: Posting) -> st
     return None
 
 
+def language_name(code: str) -> str:
+    names = {v: k.capitalize() for k, v in cv_service.LANGUAGE_CODES.items() if k != "deutsch"}
+    return names.get(str(code).lower(), str(code))
+
+
+LEVELS = ["intern", "junior", "mid", "senior", "lead", "executive"]
+
+
+def v2_gates(f: dict, country: str | None, mode: str, fact_sheet: dict) -> list[str]:
+    """Gates of version 2 that depend on facts about the user derived from the CV (specification section 4).
+    A gate applies only when the user's side of it is known, so an account without those facts behaves as before.
+    Unknown on the job's side: a required language passes, a level passes, a country fails unless remote."""
+    fails: list[str] = []
+    # Required languages: every one must be a language the user works in.
+    work = [str(x).lower() for x in fact_sheet.get("work_languages") or []]
+    if work:
+        missing = [c for c in (f.get("languages_required") or []) if str(c).lower() not in work]
+        if missing:
+            fails.append(f"requires {', '.join(language_name(c) for c in missing)}, which you do not work in")
+    # Role family
+    families = [str(x).lower() for x in fact_sheet.get("role_families") or []]
+    family = (f.get("role_family") or "unknown").lower()
+    if families and family not in ("unknown", "other") and family not in families:
+        fails.append(f"this is a {family} role, not one of your role types ({', '.join(families)})")
+    # Level: within one step of the user's own
+    mine, theirs = str(fact_sheet.get("level") or "").lower(), str(f.get("seniority") or "unknown").lower()
+    if mine in LEVELS and theirs in LEVELS and abs(LEVELS.index(mine) - LEVELS.index(theirs)) > 1:
+        fails.append(f"level is {theirs}, yours is {mine}")
+    # Your own country
+    home = str(fact_sheet.get("home_country") or "").lower()
+    if fact_sheet.get("exclude_home_country") and home and country == home and mode != "remote":
+        fails.append(f"the job is in {country_name(home)}, which you excluded")
+    # Right to work and sponsorship
+    rtw = fact_sheet.get("right_to_work_countries")
+    if isinstance(rtw, list):
+        rtw = [str(x).lower() for x in rtw]
+        if not country:
+            if mode != "remote":
+                fails.append("country is not stated and the job is not clearly remote")
+        elif (country not in rtw and mode != "remote" and f.get("visa_sponsorship") != "yes"
+              and not any(free_movement(r, country) for r in rtw)):
+            fails.append(f"you have no right to work in {country_name(country)} and the ad does not offer "
+                         "visa sponsorship or relocation")
+    return fails
+
+
 def hard_filters(
     session: Session, user_id: uuid.UUID, config: CampaignConfig, posting: Posting, fact_sheet: dict,
 ) -> tuple[bool, list[str], list[str]]:
@@ -150,6 +196,7 @@ def hard_filters(
     auth = (fact_sheet.get("work_authorisation") or {}).get(country or "", "")
     if auth == "needs_sponsorship" and f.get("visa_sponsorship") != "yes" and mode != "remote":
         fails.append("needs work authorisation you do not have")
+    fails.extend(v2_gates(f, country, mode, fact_sheet))
     block = blocked_reason(session, user_id, posting)
     if block:
         fails.append(block)

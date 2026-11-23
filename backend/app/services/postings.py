@@ -14,12 +14,22 @@ from app.connectors.sources import RawPosting
 from app.llm.base import LLMClient
 from app.models import Company, Posting
 
+ROLE_FAMILIES = ["unknown", "backend", "frontend", "fullstack", "mobile", "data", "ml", "devops", "qa", "security",
+                 "embedded", "management", "design", "product", "sales", "support", "other"]
+
 EXTRACT_SCHEMA = {
     "type": "object",
     "properties": {
         "work_mode": {"type": "string", "enum": ["unknown", "remote", "hybrid", "onsite"]},
         "contract_type": {"type": "string", "enum": ["unknown", "full_time", "part_time", "contract", "internship"]},
-        "seniority": {"type": "string", "enum": ["unknown", "junior", "mid", "senior", "lead"]},
+        "seniority": {"type": "string", "enum": ["unknown", "intern", "junior", "mid", "senior", "lead", "executive"],
+                      "description": "lead = team lead, principal or architect; executive = head of, director, VP, C-level"},
+        "role_family": {"type": "string", "enum": ROLE_FAMILIES,
+                        "description": "The kind of work: the one family that best describes the job"},
+        "languages_required": {"type": "array", "items": {"type": "string"},
+                               "description": "ISO 639-1 codes of every language the posting says the candidate "
+                                              "must speak or write (for example 'de' for 'fluent German required'). "
+                                              "Empty when none is required; English is listed only if required."},
         "salary_min": {"type": "number"},
         "salary_max": {"type": "number"},
         "salary_currency": {"type": "string"},
@@ -36,7 +46,9 @@ EXTRACT_SCHEMA = {
         "contact_email": {"type": "string"},
         "reference_number": {"type": "string"},
         "is_agency": {"type": "boolean"},
-        "visa_sponsorship": {"type": "string", "enum": ["unknown", "yes", "no"]},
+        "visa_sponsorship": {"type": "string", "enum": ["unknown", "yes", "no"],
+                             "description": "yes only if the posting offers visa sponsorship or relocation support; "
+                                            "no if it says candidates need existing work authorisation; else unknown"},
         "country": {"type": "string", "description": "ISO 3166-1 alpha-2 code, lower case, or empty"},
     },
     "required": ["work_mode", "language", "requirements_must", "application_method"],

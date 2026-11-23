@@ -42,6 +42,8 @@ under two.
    backend engineer roles using C# and .NET, remote or in countries you may work in, English-speaking."
    The user edits or accepts. Two questions always follow, because a CV cannot answer them (A5):
    which countries the user may work in today, and whether to apply where a visa must be sponsored.
+   The user may also leave out jobs located in their own country (D10): the agent then applies only to
+   remote jobs that hire from that country and to jobs abroad that offer sponsorship.
 4. **Review and start.** One page: what the agent will do, what it will ask about, the daily limit, and a
    "Try it first" switch (section 9). Then **Start my agent**.
 

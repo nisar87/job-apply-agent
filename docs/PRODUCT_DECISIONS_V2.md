@@ -17,8 +17,10 @@ rejected and what is still open. The specification follows it.
 | D8 | AI CV Studio will later tailor a CV per job; the agent decides when to ask for one and defines the interface it needs | "it will your decision either to send to aicvstudio ... you will have to tell me what parameter" |
 | D9 | The user should never have to work out what to do next; the product says so | "later I don't want to keep figuring out what to do" |
 
+| D10 | A user may exclude their own country and ask only for jobs abroad with visa sponsorship, or remote jobs | "I can only work in Pakistan but I don't need any job from Pakistan, I need visa and sponsor letter or remote job" |
+
 Facts the owner gave about himself, used only as test data, not built into the product: speaks English and
-Urdu, no German.
+Urdu, no German; right to work in Pakistan only; wants sponsored roles abroad or remote roles, none in Pakistan.
 
 ## Assumptions made to proceed (say so if any is wrong)
 
@@ -50,7 +52,6 @@ Urdu, no German.
 
 | # | Question | Default until answered |
 | --- | --- | --- |
-| Q1 | Which countries may the owner work in today, and should the agent apply where sponsorship is needed? | Asked at setup (A5) |
 | Q2 | Budget for Google's verification and yearly security assessment for Gmail sign-in | Stay on app password for invited users |
 | Q3 | AI CV Studio: who builds the interface in section "CV tailoring service" of the specification, and when | Agent works without it; hook stays switched off |
 | Q4 | Daily spending limit per user on Claude and Gemini | US$1 a day, as today |

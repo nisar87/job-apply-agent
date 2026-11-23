@@ -52,7 +52,9 @@ class CampaignConfig(BaseModel):
     keywords: list[str] = Field(default_factory=list)
     # Countries to apply within; empty means anywhere. A posting outside them is skipped, unless it is
     # remote and remote_outside_countries allows remote jobs based elsewhere.
-    countries: list[str] = Field(default_factory=lambda: ["at"])
+    countries: list[str] = Field(default_factory=list)
+    # Countries whose jobs are applied to first when there are more good jobs than the daily limit. Does not exclude others.
+    priority_countries: list[str] = Field(default_factory=list)
     remote_outside_countries: bool = True
     locations: list[str] = Field(default_factory=list)
     work_modes: list[str] = Field(default_factory=list)  # remote | hybrid | onsite; empty = any
@@ -91,7 +93,7 @@ class CampaignConfig(BaseModel):
     email_min_words: int = Field(default=120, ge=40, le=400)
     email_max_words: int = Field(default=180, ge=60, le=600)
 
-    @field_validator("countries")
+    @field_validator("countries", "priority_countries")
     @classmethod
     def _known_countries(cls, v: list[str]) -> list[str]:
         out, unknown = [], []

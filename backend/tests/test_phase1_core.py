@@ -76,7 +76,7 @@ def _posting(s, llm, **kw) -> Posting:
 def test_hard_filters(client, llm):
     from datetime import date
 
-    w = make_world(client, llm, config={"salary_min": 50000})
+    w = make_world(client, llm, config={"salary_min": 50000, "countries": ["at"]})
     with w.session() as s:
         cfg = get_config(campaign_of(s, w))
         ok, fails, notes = matching.hard_filters(s, w.user_id, cfg, _posting(s, llm), {})

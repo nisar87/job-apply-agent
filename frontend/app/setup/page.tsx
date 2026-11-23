@@ -74,6 +74,12 @@ export default function Setup() {
     }));
   }, [facts.data]);
 
+  // Nothing to type: the agent plans the search from the CV. The box only changes that plan.
+  useEffect(() => {
+    if (step !== 2 || plan || busy || wish.trim()) return;
+    void readWish(undefined, FROM_CV);
+  }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const cv = (cvs.data || []).find((c) => c.active);
 
   async function upload(e: React.FormEvent<HTMLFormElement>) {
@@ -94,12 +100,13 @@ export default function Setup() {
     }
   }
 
-  async function readWish(e: React.FormEvent) {
-    e.preventDefault();
+  const FROM_CV = "Find jobs that fit my CV and level. Remote or with relocation, anywhere in the world.";
+  async function readWish(e?: React.FormEvent, text?: string) {
+    e?.preventDefault();
     setBusy(true);
     setError("");
     try {
-      const out = await api<Reply>("/api/setup/turn", { method: "POST", json: { history: [{ role: "user", text: wish }], draft: plan?.config } });
+      const out = await api<Reply>("/api/setup/turn", { method: "POST", json: { history: [{ role: "user", text: text ?? wish }], draft: text ? undefined : plan?.config } });
       setPlan(out);
     } catch (err) {
       setError(errorText(err));
@@ -184,15 +191,15 @@ export default function Setup() {
       {step === 2 && (
         <section className="mt-4 max-w-xl">
           <h2 className="text-xl">What you want</h2>
-          <form onSubmit={readWish}>
-            <label className="text-sm">Describe your job search in plain words. Write it like you would tell a person: what kind of jobs, where, how many a day, what to avoid.
+          <form onSubmit={(e) => readWish(e)}>
+            <label className="text-sm">I planned the search from your CV (see below). Want something different? Say it in plain words: where, how many a day, what to avoid. Otherwise just continue.
               <textarea className="field mt-1 min-h-28" value={wish} onChange={(e) => setWish(e.target.value)} required
                 placeholder="Remote or relocation jobs in Europe, Canada and the US, Austria first, not in Pakistan, 5 to 8 a day." />
             </label>
-            <button className="btn btn-quiet mt-2" disabled={busy || !wish.trim()}>{busy ? "Reading…" : plan ? "Read it again" : "Read this"}</button>
+            <button className="btn btn-quiet mt-2" disabled={busy || !wish.trim()}>{busy ? "Reading…" : plan ? "Change the plan" : "Read this"}</button>
           </form>
           {plan && <p className="mt-3 border-l-4 border-rule bg-sheet px-3 py-2 text-sm">{plan.reply}</p>}
-          {plan?.needs?.includes("where") && <p className="mt-3 text-sm text-problem">Add where to look to your text, then press &quot;Read it again&quot;.</p>}
+          {plan?.needs?.includes("where") && <p className="mt-3 text-sm text-problem">Add where to look to your text, then press &quot;Change the plan&quot;.</p>}
           <div className="mt-6 max-w-xl">
             <p className="text-sm font-semibold">About you, once (employers ask for these)</p>
             <div className="mt-2 grid gap-3 sm:grid-cols-3">

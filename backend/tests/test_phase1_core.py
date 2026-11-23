@@ -193,3 +193,15 @@ def test_a_draft_in_one_block_of_text_is_sent_back(llm):
     assert any("one block of text" in p for p in block["problems"])
     laid_out = f"Dear Acme team,\n\n{words}\n\nKind regards,\nAlex"
     assert writing.run_checks(llm, {"subject": "Engineer - Alex", "body": laid_out}, **kw)["passed"]
+
+
+def test_an_excluded_country_fails_the_hard_filter_even_when_remote(client, llm):
+    w = make_world(client, llm, config={"exclude_countries": ["pk"], "countries": []})
+    with w.session() as s:
+        cfg = get_config(campaign_of(s, w))
+        pk = _posting(s, llm, title="Remote from Lahore", country="pk", extra="Fully remote")
+        pk.fields = {**pk.fields, "work_mode": "remote"}
+        ok, fails, _ = matching.hard_filters(s, w.user_id, cfg, pk, {})
+        assert not ok and any("excluded" in f for f in fails)
+        de = _posting(s, llm, title="Remote from Berlin", country="de", extra="Fully remote")
+        assert matching.hard_filters(s, w.user_id, cfg, de, {})[0]

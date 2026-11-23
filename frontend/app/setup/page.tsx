@@ -10,38 +10,9 @@ import { api } from "@/lib/api";
 import type { CV, CampaignConfig } from "@/lib/types";
 
 type Status = { has_cv: boolean; mail_connected: boolean; escalation_email: string | null };
-type Profile = {
-  name?: string; location?: string; total_years_experience?: number; level?: string; role_families?: string[];
-  skills?: { name: string }[]; languages?: { name: string; level?: string }[]; roles?: { title: string }[];
-};
 type Reply = { needs?: string[]; reply: string; config: CampaignConfig; campaign_name: string; preferences: string[]; ready: boolean };
 
-const STEP_TITLES = ["Your CV", "Your Gmail", "What you want", "Review"];
-
-function Understood({ cvId }: { cvId: string }) {
-  const profile = useLoad<{ profile: Profile }>(`/api/cvs/${cvId}/profile`);
-  const p = profile.data?.profile;
-  if (!p) return <p className="mt-4 text-sm text-slate">Reading your CV…</p>;
-  const rows: [string, string][] = [
-    ["Name", p.name || "not found"],
-    ["Based in", p.location || "not found"],
-    ["Experience", p.total_years_experience ? `${Math.round(p.total_years_experience)} years` : "not found"],
-    ["Work you do", p.roles?.[0]?.title || [p.level, ...(p.role_families || [])].filter(Boolean).join(" ") || "not found"],
-    ["Main skills", (p.skills || []).slice(0, 8).map((s) => s.name).join(", ") || "not found"],
-    ["Languages", (p.languages || []).map((l) => l.name).join(", ") || "not found"],
-  ];
-  return (
-    <section className="mt-6" aria-label="What I understood">
-      <h3 className="text-xl">Here is what I understood</h3>
-      <dl className="mt-2 max-w-xl text-sm">
-        {rows.map(([k, v]) => (
-          <div key={k} className="flex justify-between gap-4 border-b border-rule py-1"><dt className="text-slate">{k}</dt><dd className="text-right">{v}</dd></div>
-        ))}
-      </dl>
-      <p className="mt-2 text-xs text-slate">Something wrong? Carry on; you can correct it any time under Settings, Your CV and facts.</p>
-    </section>
-  );
-}
+const STEP_TITLES = ["Your CV", "Your Gmail", "Start"];
 
 export default function Setup() {
   const router = useRouter();
@@ -73,6 +44,11 @@ export default function Setup() {
       start: a.start || String(f.earliest_start || f.notice_period || ""), phone: a.phone || String(f.phone || ""),
     }));
   }, [facts.data]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (step === 0 && cvs.data?.some((c) => c.active)) setStep(1);
+  }, [step, cvs.data]);
 
   // Nothing to type: the agent plans the search from the CV. The box only changes that plan.
   useEffect(() => {
@@ -115,7 +91,8 @@ export default function Setup() {
     }
   }
 
-  async function saveStep3() {
+  async function start() {
+    if (!plan) return;
     setBusy(true);
     setError("");
     try {
@@ -126,19 +103,6 @@ export default function Setup() {
         ...(about.start.trim() ? { earliest_start: about.start.trim() } : {}),
         ...(about.phone.trim() ? { phone: about.phone.trim() } : {}),
       } });
-      setStep(3);
-    } catch (err) {
-      setError(errorText(err));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function start() {
-    if (!plan) return;
-    setBusy(true);
-    setError("");
-    try {
       const config = { ...plan.config, daily_quota: Math.min(plan.config.daily_quota || 10, 10) };
       await api("/api/campaigns", { method: "POST", json: { name: plan.campaign_name, config, preferences: plan.preferences, state: tryFirst ? "dry_run" : "active" } });
       router.push("/");
@@ -151,7 +115,7 @@ export default function Setup() {
 
   return (
     <Shell title="Set up your agent">
-      <p className="text-sm text-slate" aria-live="polite">Step {step + 1} of 4 · {STEP_TITLES[step]}</p>
+      <p className="text-sm text-slate" aria-live="polite">Step {step + 1} of 3 · {STEP_TITLES[step]}</p>
       <ErrorNote message={error} />
 
       {step === 0 && (
@@ -165,10 +129,7 @@ export default function Setup() {
               <button className="btn mt-4" disabled={busy}>{busy ? "Reading your CV…" : "Read my CV"}</button>
             </form>
           ) : (
-            <>
-              <Understood cvId={cv.id} />
-              <button className="btn mt-6" onClick={() => setStep(1)}>Looks right</button>
-            </>
+            <p className="mt-3 text-sm text-slate">CV read.</p>
           )}
         </section>
       )}
@@ -190,7 +151,7 @@ export default function Setup() {
 
       {step === 2 && (
         <section className="mt-4 max-w-xl">
-          <h2 className="text-xl">What you want</h2>
+          <h2 className="text-xl">Your plan</h2>
           <form onSubmit={(e) => readWish(e)}>
             <label className="text-sm">I planned the search from your CV (see below). Want something different? Say it in plain words: where, how many a day, what to avoid. Otherwise just continue.
               <textarea className="field mt-1 min-h-28" value={wish} onChange={(e) => setWish(e.target.value)} required
@@ -200,8 +161,8 @@ export default function Setup() {
           </form>
           {plan && <p className="mt-3 border-l-4 border-rule bg-sheet px-3 py-2 text-sm">{plan.reply}</p>}
           {plan?.needs?.includes("where") && <p className="mt-3 text-sm text-problem">Add where to look to your text, then press &quot;Change the plan&quot;.</p>}
-          <div className="mt-6 max-w-xl">
-            <p className="text-sm font-semibold">About you, once (employers ask for these)</p>
+          <details className="mt-6 max-w-xl">
+            <summary className="cursor-pointer text-sm font-semibold">About you (optional: employers ask for these)</summary>
             <div className="mt-2 grid gap-3 sm:grid-cols-3">
               <label className="text-sm">Expected salary a year
                 <input className="field mt-1" value={about.salary} onChange={(e) => setAbout({ ...about, salary: e.target.value })} placeholder="60000 EUR" />
@@ -214,38 +175,18 @@ export default function Setup() {
               </label>
             </div>
             <p className="mt-1 text-xs text-slate">Leave any empty: the agent never makes these up. It asks you only if an employer needs one.</p>
-          </div>
+          </details>
+          <label className="mt-5 flex items-start gap-2 text-sm">
+            <input type="checkbox" className="mt-1" checked={tryFirst} onChange={(e) => setTryFirst(e.target.checked)} />
+            <span>Try it first: prepare everything, send nothing. Switch off in Settings when happy.</span>
+          </label>
           <div className="mt-6 flex gap-2">
             <button className="btn btn-quiet" onClick={() => setStep(1)}>Back</button>
-            <button className="btn" disabled={busy || !plan || !!plan.needs?.length} onClick={saveStep3}>Continue</button>
+            <button className="btn" disabled={busy || !plan || !!plan.needs?.length} onClick={start}>{busy ? "Starting…" : "Start my agent"}</button>
           </div>
         </section>
       )}
 
-      {step === 3 && plan && (
-        <section className="mt-4 max-w-xl">
-          <h2 className="text-xl">Review</h2>
-          <p className="mt-2 text-sm font-semibold">Your agent will</p>
-          <ul className="list-disc pl-5 text-sm">
-            <li>look for new jobs every few hours</li>
-            <li>apply to up to 10 a day that fit your CV</li>
-            <li>answer routine questions from employers</li>
-          </ul>
-          <p className="mt-3 text-sm font-semibold">It will ask you about</p>
-          <ul className="list-disc pl-5 text-sm">
-            <li>interview times, salary and offers</li>
-            <li>anything it cannot answer from your CV</li>
-          </ul>
-          <label className="mt-5 flex items-start gap-2 text-sm">
-            <input type="checkbox" className="mt-1" checked={tryFirst} onChange={(e) => setTryFirst(e.target.checked)} />
-            <span><strong>Try it first</strong>: prepare everything, send nothing. You can switch this off in Settings once you have seen what it would send.</span>
-          </label>
-          <div className="mt-6 flex gap-2">
-            <button className="btn btn-quiet" onClick={() => setStep(2)}>Back</button>
-            <button className="btn" disabled={busy} onClick={start}>{busy ? "Starting…" : "Start my agent"}</button>
-          </div>
-        </section>
-      )}
     </Shell>
   );
 }

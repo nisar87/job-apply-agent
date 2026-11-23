@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     cv_tailor_api_key: str = ""
     cv_tailor_min_score: float = 85.0
     cv_tailor_min_terms: int = 1     # any essential requirement the CV proves in other words is worth tailoring for; a CV already made for those terms is reused
+    cv_tailor_reuse_coverage: float = 0.75   # a saved tailored CV is reused when it covers at least this share of the job's keywords
     cv_tailor_daily_per_user: int = 30   # a safety limit above the 25 applications a day, not a target
     cv_tailor_retry_days: int = 7        # after a refusal that will not change, the same kind of job is not asked again for this long
     cv_tailor_poll_seconds: float = 5.0

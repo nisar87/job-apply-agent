@@ -7,6 +7,7 @@ goes out with the person's own CV, so tailoring can never block or endanger an a
 import hashlib
 import json
 import logging
+import re
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -129,16 +130,40 @@ def should_tailor(match: Match, emphasis: list[dict]) -> bool:
             and len(emphasis) >= get_settings().cv_tailor_min_terms)
 
 
-def _cached(session: Session, user_id: uuid.UUID, family: str, terms: set[str], purpose: str) -> dict | None:
-    """A tailored CV already made for this kind of job with the same essential terms: reuse it."""
+def _norm_term(term: str) -> str:
+    return " ".join(re.sub(r"[^a-z0-9#+.\s]", " ", term.lower()).split())
+
+
+def _covers(have: str, need: str) -> bool:
+    """A saved keyword covers a needed one when they are the same or one contains the other ("SQL Server" and
+    "Microsoft SQL Server")."""
+    return have == need or (len(need) > 2 and (need in have or have in need) and min(len(have), len(need)) > 2)
+
+
+def library_match(session: Session, user_id: uuid.UUID, terms: set[str], purpose: str) -> dict | None:
+    """The person's own library of tailored CVs: the saved one whose keywords cover the most of what this job needs.
+    Good enough means at least `cv_tailor_reuse_coverage` of the needed keywords. A CV made for the ATS-safe upload
+    layout may also serve an email."""
+    needed = {_norm_term(t) for t in terms if _norm_term(t)}
+    if not needed:
+        return None
     rows = session.execute(select(Application.attachments).where(Application.user_id == user_id)
-                           .order_by(Application.created_at.desc()).limit(200)).scalars()
+                           .order_by(Application.created_at.desc()).limit(1000)).scalars()
+    best, best_key = None, None
     for attachments in rows:
         for a in attachments or []:
             t = a.get("tailored")
-            if t and t.get("family") == family and t.get("purpose") == purpose and terms <= set(t.get("terms", [])):
-                return a
-    return None
+            if not t or (t.get("purpose") != purpose and t.get("purpose") != "upload"):
+                continue
+            have = {_norm_term(x) for x in t.get("terms", [])}
+            covered = sum(1 for n in needed if any(_covers(h, n) for h in have))
+            coverage = covered / len(needed)
+            if coverage < get_settings().cv_tailor_reuse_coverage:
+                continue
+            key = (coverage, -len(have - needed))          # most covered first, then the closest (fewest unrelated keywords)
+            if best_key is None or key > best_key:
+                best, best_key = a, key
+    return best
 
 
 def _asked_enough_today(session: Session, user_id: uuid.UUID) -> bool:
@@ -164,7 +189,7 @@ def tailored_attachment(session: Session, llm: LLMClient, *, user: User, posting
         return None
     family = str((posting.fields or {}).get("role_family") or "unknown")
     terms = {e["term"].lower() for e in emphasis}
-    hit = _cached(session, user.id, family, terms, purpose)
+    hit = library_match(session, user.id, terms, purpose)
     if hit:
         return hit
     if _refused_before(session, user.id, family, terms) or _asked_enough_today(session, user.id):

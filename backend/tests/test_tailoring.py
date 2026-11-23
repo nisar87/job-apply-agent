@@ -244,3 +244,26 @@ def test_a_person_has_a_daily_limit_on_calls(client, llm, monkeypatch):
         assert tailoring.tailored_attachment(s, Llm(), user=user, posting=posting, match=match, version=version,
                                              purpose="upload", client=again.client()) is None
         assert not again.calls
+
+
+def test_the_library_picks_the_closest_saved_cv_and_asks_the_service_only_when_none_fits(client, llm, monkeypatch):
+    turn_on(monkeypatch)
+    with job(client, llm) as (s, user, version, posting, match):
+        from app.models import Application, Campaign
+        campaign = s.execute(select(Campaign).where(Campaign.user_id == user.id)).scalars().first()
+
+        def tailored(terms, key):
+            return {"name": "x.pdf", "key": key, "tailored": {"purpose": "upload", "terms": terms}}
+        wide = tailored(["Microsoft SQL Server", "Python", "Docker", "Kubernetes"], "wide")
+        close = tailored(["SQL Server", "Python", "Docker"], "close")
+        s.add(Application(user_id=user.id, posting_id=posting.id, campaign_id=campaign.id, cv_version_id=version.id,
+                          status="submitted", route="form", idempotency_key="k", subject="", body="", attachments=[wide, close]))
+        s.flush()
+        match_for = lambda *terms: [{"term": t, "evidence": "e"} for t in terms]    # noqa: E731
+        # wording differs ("SQL Server" vs "Microsoft SQL Server"); the closest saved CV wins, an upload CV serves an email
+        assert tailoring.library_match(s, user.id, {"sql server", "python", "docker"}, "email") == close
+        assert tailoring.library_match(s, user.id, {"sql server", "python", "docker", "kubernetes"}, "email") == wide
+        # three of four needed keywords is enough (0.75); two of four is not
+        assert tailoring.library_match(s, user.id, {"sql server", "python", "docker", "terraform"}, "email") in (close, wide)
+        assert tailoring.library_match(s, user.id, {"sql server", "go", "rust", "terraform"}, "email") is None
+        assert match_for("a")

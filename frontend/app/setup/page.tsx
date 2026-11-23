@@ -185,7 +185,7 @@ export default function Setup() {
         <section className="mt-4 max-w-xl">
           <h2 className="text-xl">What you want</h2>
           <form onSubmit={readWish}>
-            <label className="text-sm">In your own words: which jobs, where, anything to avoid.
+            <label className="text-sm">Describe your job search in plain words. Write it like you would tell a person: what kind of jobs, where, how many a day, what to avoid.
               <textarea className="field mt-1 min-h-28" value={wish} onChange={(e) => setWish(e.target.value)} required
                 placeholder="Remote or relocation jobs in Europe, Canada and the US, Austria first, not in Pakistan, 5 to 8 a day." />
             </label>

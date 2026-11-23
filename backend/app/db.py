@@ -22,7 +22,9 @@ _SessionLocal = None
 def get_engine():
     global _engine, _SessionLocal
     if _engine is None:
-        _engine = create_engine(get_settings().database_url, pool_pre_ping=True)
+        # A statement or lock wait that never ends must fail, not hold a request (and a worker) for ever.
+        _engine = create_engine(get_settings().database_url, pool_pre_ping=True, connect_args={
+            "options": "-c lock_timeout=30000 -c statement_timeout=180000 -c idle_in_transaction_session_timeout=600000"})
         _SessionLocal = sessionmaker(bind=_engine, expire_on_commit=False)
     return _engine
 

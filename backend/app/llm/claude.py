@@ -30,7 +30,7 @@ class ClaudeClient:
         key = api_key or s.anthropic_api_key
         if not key:
             raise RuntimeError("ANTHROPIC_API_KEY is not set")
-        self._client = anthropic.Anthropic(api_key=key, max_retries=0)
+        self._client = anthropic.Anthropic(api_key=key, max_retries=0, timeout=anthropic.Timeout(60.0, connect=10.0))
         self._models = {"fast": s.claude_model_fast, "strong": s.claude_model_strong}
 
     def _model(self, tier: str) -> str:
@@ -46,7 +46,9 @@ class ClaudeClient:
                 if wait is None or exc.status_code not in RETRY_CODES:
                     raise ClaudeUnavailable(f"Claude answered {exc.status_code}") from exc
                 log.warning("Claude answered %s, retrying in %ss", exc.status_code, wait)
-            except (anthropic.APIConnectionError, anthropic.APITimeoutError) as exc:
+            except anthropic.APITimeoutError as exc:       # a call that stalls is not repeated: Gemini answers instead
+                raise ClaudeUnavailable("Claude did not answer in time") from exc
+            except anthropic.APIConnectionError as exc:
                 if wait is None:
                     raise ClaudeUnavailable(type(exc).__name__) from exc
                 log.warning("Claude call failed (%s), retrying in %ss", type(exc).__name__, wait)

@@ -111,7 +111,7 @@ def v2_gates(f: dict, country: str | None, mode: str, fact_sheet: dict) -> list[
         fails.append(f"level is {theirs}, yours is {mine}")
     # Your own country
     home = str(fact_sheet.get("home_country") or "").lower()
-    if fact_sheet.get("exclude_home_country") and home and country == home and mode != "remote":
+    if fact_sheet.get("exclude_home_country") and home and country == home:   # remote or not: never your own country
         fails.append(f"the job is in {country_name(home)}, which you excluded")
     # Right to work and sponsorship
     rtw = fact_sheet.get("right_to_work_countries")

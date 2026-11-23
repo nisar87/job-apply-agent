@@ -106,6 +106,9 @@ def inbox_user(user_id: uuid.UUID, now: datetime | None = None) -> dict:
         return {"busy": True}
     except SpendCapExceeded:
         return {"error": "spend cap reached"}
+    except Exception as exc:  # noqa: BLE001 - one bad mailbox (wrong password, timeout) must not fail the whole pass
+        log.warning("inbox pass failed for %s: %s", user_id, type(exc).__name__)
+        return {"error": f"mailbox: {type(exc).__name__}"}
 
 
 def tick(now: datetime | None = None) -> dict:

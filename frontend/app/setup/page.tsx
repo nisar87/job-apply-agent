@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import JobGmail from "@/components/JobGmail";
 import MainEmail from "@/components/MainEmail";
+import ModelKey from "@/components/ModelKey";
 import Shell from "@/components/Shell";
 import { ErrorNote, errorText, useLoad } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -17,6 +18,7 @@ export default function Setup() {
   const router = useRouter();
   const status = useLoad<Status>("/api/setup/status");
   const cvs = useLoad<CV[]>("/api/cvs");
+  const key = useLoad<{ source: string }>("/api/account/model-key");
   const [text, setText] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [answer, setAnswer] = useState("");
@@ -24,6 +26,7 @@ export default function Setup() {
   const [busy, setBusy] = useState(false);
 
   const hasCv = !!(cvs.data || []).some((c) => c.active) || !!file;
+  const keyReady = !!key.data && key.data.source !== "none";
   const mailReady = !!status.data?.mail_connected && !!status.data?.escalation_email;
 
   async function go(e: React.FormEvent) {
@@ -63,6 +66,12 @@ export default function Setup() {
   return (
     <Shell title="What should I do for you?">
       <ErrorNote message={error} />
+      {key.data && !keyReady && (
+        <div className="card mt-4 max-w-2xl p-4">
+          <p className="text-sm font-semibold">First, add your own AI key. The agent runs on it.</p>
+          <ModelKey onChanged={key.reload} />
+        </div>
+      )}
       <form onSubmit={go} className="mt-4 max-w-2xl">
         <label className="sr-only" htmlFor="wish">Describe what you want</label>
         <textarea id="wish" className="field min-h-56 w-full text-base" value={text} onChange={(e) => setText(e.target.value)}
@@ -74,7 +83,7 @@ export default function Setup() {
               <input className="field mt-1" type="file" accept=".pdf,.docx,.txt" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
             </label>
           )}
-          <button className="btn ml-auto" disabled={busy || !hasCv || !mailReady}>{busy ? "Working…" : "Start"}</button>
+          <button className="btn ml-auto" disabled={busy || !hasCv || !mailReady || !keyReady}>{busy ? "Working…" : "Start"}</button>
         </div>
         {!mailReady && status.data && (
           <div className="mt-6 border-t border-rule pt-4">

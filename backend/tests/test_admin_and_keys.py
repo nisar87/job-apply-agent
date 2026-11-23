@@ -33,7 +33,10 @@ def test_each_policy_picks_the_right_key(client, llm):
     w = make_world(client, llm)
     with w.session() as s:
         user = s.get(User, w.user_id)
-        assert access.source_for(user) == "platform"                       # default "either", no own key
+        assert access.source_for(user) == "none"                           # default: everyone brings their own key
+        user.platform_key_allowed = True
+        access.save_platform_settings(key_policy="either")
+        assert access.source_for(user) == "platform"                       # the admin can still allow the service's key
         access.set_own_key(user, KEY)
         assert access.key_hint(user) == "…1234" and user.llm_api_key_enc != KEY   # stored encrypted
         assert access.source_for(user) == "own" and access.cap_for(user) == 0.0   # own key: the user's limit
@@ -46,7 +49,7 @@ def test_each_policy_picks_the_right_key(client, llm):
         assert access.source_for(user) == "none"
         set_llm_override(None)
         try:
-            with pytest.raises(access.NoModelKey, match="add a Claude or Gemini key"):
+            with pytest.raises(access.NoModelKey, match="add your Gemini key"):
                 access.client_for(s, w.user_id)
         finally:
             set_llm_override(llm)
@@ -59,6 +62,11 @@ def test_each_policy_picks_the_right_key(client, llm):
 
 def test_users_add_and_remove_their_own_key(client, llm):
     w = make_world(client, llm)
+    r = client.get("/api/account/model-key", headers=w.headers).json()
+    assert r["source"] == "none" and not r["has_own_key"]          # nobody runs on the service's keys by default
+    access.save_platform_settings(key_policy="either")
+    with w.session() as s:
+        s.get(User, w.user_id).platform_key_allowed = True
     r = client.get("/api/account/model-key", headers=w.headers).json()
     assert r["source"] == "platform" and not r["has_own_key"]
     assert client.put("/api/account/model-key", json={"key": "short"}, headers=w.headers).status_code == 400

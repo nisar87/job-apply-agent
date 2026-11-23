@@ -66,7 +66,7 @@ class RoutedLLM:
 
     def _need_gemini(self):
         if self.gemini is None:
-            raise SpendCapExceeded("Searching and comparing jobs needs a Gemini key: add one in Settings, or ask for the service's key")
+            raise SpendCapExceeded("Searching and comparing jobs needs a Gemini key: add yours in Account and keys")
         return self.gemini
 
     def search_web(self, prompt: str, *, tier: str = "fast", task: str = "") -> LLMResult:

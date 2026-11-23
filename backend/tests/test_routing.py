@@ -140,6 +140,7 @@ def test_the_keys_a_person_gives_decide_the_models(client, llm, monkeypatch):
     monkeypatch.setattr(get_settings(), "gemini_api_key", "g-platform")
     monkeypatch.setattr(get_settings(), "anthropic_api_key", "c-platform")
     w = make_world(client, llm)
+    access.save_platform_settings(key_policy="either")      # the admin lets the service's keys back some people
     monkeypatch.setattr(llm_pkg, "_override", None)      # the real client choice, not the test double
     with w.session() as s:
         user = s.get(User, w.user_id)

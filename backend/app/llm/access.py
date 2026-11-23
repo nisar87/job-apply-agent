@@ -39,7 +39,7 @@ def platform_settings() -> dict:
     except (ValueError, TypeError):
         stored = {}
     return {
-        "key_policy": stored.get("key_policy") if stored.get("key_policy") in POLICIES else "either",
+        "key_policy": stored.get("key_policy") if stored.get("key_policy") in POLICIES else "own",
         "default_cap_usd": float(stored.get("default_cap_usd", s.llm_daily_spend_cap_usd)),
         "platform_key_configured": bool(s.gemini_api_key) or s.llm_provider == "fake",
     }
@@ -116,8 +116,8 @@ def cap_for(user: User, settings: dict | None = None) -> float:
 
 def why_no_key(settings: dict) -> str:
     if settings["key_policy"] == "own":
-        return "no key: add a Claude or Gemini key in Settings"
-    return "no key: add a Claude or Gemini key in Settings, or ask the admin for access"
+        return "no key: add your Gemini key in Settings (a Claude key too, if you have one)"
+    return "no key: add your Gemini key in Settings (a Claude key too, if you have one), or ask the admin for access"
 
 
 def client_for(session: Session, user_id: uuid.UUID) -> LLMClient:

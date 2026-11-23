@@ -41,6 +41,15 @@ class PostgresKV:
         ).first()
         return True if row else None
 
+    def hset(self, name: str, field: str, value) -> int:
+        """Like Redis HSET: one field of a named hash, kept as its own row."""
+        self.set(f"{name}#{field}", value)
+        return 1
+
+    def hgetall(self, name: str) -> dict[str, str]:
+        rows = self._run(f"SELECT key, value FROM kv_store WHERE key LIKE :p AND NOT {_EXPIRED}", p=f"{name}#%").all()
+        return {k[len(name) + 1:]: v for k, v in rows}
+
     def delete(self, *keys: str) -> int:
         if not keys:
             return 0

@@ -1,119 +1,121 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
+import FrontDoor from "@/components/FrontDoor";
 import Shell from "@/components/Shell";
 import { ErrorNote, useLoad } from "@/components/ui";
+import { api, fmtDate, getToken } from "@/lib/api";
 
-type Dash = {
-  today: { sent: number; quota: number; drafts_waiting: number; queued: number; needs_attention: number; manual_apply: number };
-  week: { evaluated: number; matched: number; applied: number; replied: number; interviews: number; rejections: number };
-  campaigns: { id: string; name: string; state: string }[];
-};
-type Setup = { missing: string[] };
-type Day = { day: string; sent: number; replies: number };
-
-const MISSING: Record<string, { text: string; href: string }> = {
-  cv: { text: "Upload a CV", href: "/cvs" },
-  mail: { text: "Connect your Gmail account", href: "/account" },
-  escalation_email: { text: "Say where urgent replies should be sent", href: "/account" },
-  fact_sheet: { text: "Fill in your fact sheet", href: "/cvs" },
+type Home = {
+  status: { state: "working" | "paused" | "stopped" | "cannot_work"; text: string; fix: { text: string; href: string } | null; last_checked_at: string | null };
+  try_it_first: boolean;
+  needs_you: { kind: string; urgent: boolean; title: string; href: string }[];
+  week: { applied: number; replies: number; interviews: number; checked: number };
+  latest: { at: string; kind: string; text: string; note: string; href: string }[];
+  skipped: { total: number; reasons: { reason: string; count: number }[] };
 };
 
-function Figure({ n, label, href }: { n: number | string; label: string; href?: string }) {
-  const inner = (
-    <>
-      <span className="letter block text-4xl">{n}</span>
-      <span className="text-sm text-slate">{label}</span>
-    </>
-  );
-  return href ? <Link href={href} className="block hover:underline">{inner}</Link> : <div>{inner}</div>;
+function ago(iso: string | null): string {
+  if (!iso) return "not yet";
+  const minutes = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  if (minutes < 2) return "just now";
+  if (minutes < 90) return `${minutes} minutes ago`;
+  const hours = Math.round(minutes / 60);
+  return hours < 36 ? `${hours} hours ago` : fmtDate(iso);
 }
 
-export default function Today() {
-  const dash = useLoad<Dash>("/api/dashboard");
-  const setup = useLoad<Setup>("/api/setup/status");
-  const stats = useLoad<Day[]>("/api/stats/daily?days=13");
-  const replies = useLoad<{ urgency: string }[]>("/api/escalations");
-  const d = dash.data;
-  const urgent = (replies.data || []).filter((r) => r.urgency === "urgent").length;
+function HomeScreen() {
+  const home = useLoad<Home>("/api/home");
+  const [busy, setBusy] = useState(false);
+  const h = home.data;
+
+  async function togglePause(pause: boolean) {
+    setBusy(true);
+    try {
+      const searches = await api<{ id: string; state: string }[]>("/api/campaigns");
+      for (const c of searches) {
+        if (pause && c.state !== "paused") await api(`/api/campaigns/${c.id}`, { method: "PATCH", json: { state: "paused" } });
+        if (!pause && c.state === "paused") await api(`/api/campaigns/${c.id}`, { method: "PATCH", json: { state: "active" } });
+      }
+      home.reload();
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
-    <Shell title="Today">
-      <ErrorNote message={dash.error} />
-      {setup.data && setup.data.missing.length > 0 && (
-        <section className="mb-8 border-l-4 border-waiting bg-sheet px-4 py-3 text-sm">
-          <p className="font-semibold">Finish setting up before the agent can apply</p>
-          <ul className="mt-1 list-disc pl-5">
-            {setup.data.missing.map((m) => (
-              <li key={m}><Link className="underline" href={MISSING[m]?.href || "/setup"}>{MISSING[m]?.text || m}</Link></li>
-            ))}
-          </ul>
-        </section>
-      )}
-      {d && (
+    <Shell title="Home">
+      <ErrorNote message={home.error} />
+      {h && (
         <>
-          {urgent > 0 && (
-            <Link href="/inbox" className="mb-6 block border-l-4 border-problem bg-sheet px-4 py-3 text-sm font-semibold text-problem">
-              {urgent === 1 ? "An urgent reply needs you" : `${urgent} urgent replies need you`} (interview, offer or similar). Open the inbox
-            </Link>
-          )}
-          <section className="grid grid-cols-2 gap-6 border-b border-rule pb-8 sm:grid-cols-5">
-            <Figure n={(replies.data || []).length} label="replies waiting for you" href="/inbox" />
-            <Figure n={d.today.drafts_waiting + d.today.manual_apply} label="drafts and jobs to apply to" href="/drafts" />
-            <Figure n={`${d.today.sent} of ${d.today.quota}`} label="sent today" href="/applications?status=sent" />
-            <Figure n={d.today.queued} label="approved, going out" href="/applications?status=queued" />
-            <Figure n={d.today.needs_attention} label="need attention" href="/applications?status=failed" />
+          <section className="flex flex-wrap items-center justify-between gap-3 border-b border-rule pb-5" aria-label="Status">
+            <div>
+              <p className="letter text-2xl">{h.status.text}</p>
+              {h.status.state === "working" && <p className="text-sm text-slate">Last looked for jobs {ago(h.status.last_checked_at)}.</p>}
+              {h.status.fix && <p className="mt-1 text-sm"><Link className="underline" href={h.status.fix.href}>{h.status.fix.text}</Link></p>}
+            </div>
+            {h.status.state === "working" && <button className="btn btn-quiet" disabled={busy} onClick={() => togglePause(true)}>Pause</button>}
+            {h.status.state === "paused" && !h.status.fix?.href.startsWith("/setup") && (
+              <button className="btn" disabled={busy} onClick={() => togglePause(false)}>Resume</button>
+            )}
           </section>
-          <h2 className="mt-8 text-xl">Last seven days</h2>
-          <section className="mt-4 grid grid-cols-2 gap-6 sm:grid-cols-6">
-            <Figure n={d.week.evaluated} label="postings checked" href="/applications?tab=skipped" />
-            <Figure n={d.week.matched} label="good matches" />
-            <Figure n={d.week.applied} label="applications sent" href="/applications" />
-            <Figure n={d.week.replied} label="replies" href="/inbox" />
-            <Figure n={d.week.interviews} label="interviews" href="/applications?status=interview" />
-            <Figure n={d.week.rejections} label="rejections" href="/applications?status=rejected" />
+
+          <section className="mt-8" aria-label="Needs you">
+            <h2 className="text-xl">Needs you{h.needs_you.length > 0 ? ` (${h.needs_you.length})` : ""}</h2>
+            {h.needs_you.length === 0 ? <p className="mt-2 text-sm text-slate">Nothing needs you.</p> : (
+              <ul className="mt-2 divide-y divide-rule border-y border-rule">
+                {h.needs_you.map((n, i) => (
+                  <li key={i} className="flex items-center justify-between gap-3 py-3 text-sm">
+                    <span>{n.urgent && <strong className="mr-2 text-problem">Urgent</strong>}{n.title}</span>
+                    <Link className="btn btn-quiet shrink-0" href={n.href}>Open</Link>
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
-          {stats.data && stats.data.some((x) => x.sent || x.replies) && (
-            <section className="mt-8" aria-label="Applications sent and replies received per day">
-              <h2 className="text-xl">Sent and replies by day</h2>
-              <div className="mt-3 flex h-32 items-end gap-1 border-b border-ink">
-                {stats.data.map((x) => {
-                  const max = Math.max(1, ...stats.data!.map((y) => Math.max(y.sent, y.replies)));
-                  return (
-                    <div key={x.day} className="flex h-full flex-1 items-end justify-center gap-px" title={`${x.day}: ${x.sent} sent, ${x.replies} replies`}>
-                      <span className="w-1/2 bg-ink" style={{ height: `${(x.sent / max) * 100}%` }} />
-                      <span className="w-1/2 bg-sent" style={{ height: `${(x.replies / max) * 100}%` }} />
-                    </div>
-                  );
-                })}
-              </div>
-              <p className="mt-1 flex justify-between text-xs text-slate">
-                <span>{stats.data[0].day}</span>
-                <span><span className="mr-1 inline-block h-2 w-2 bg-ink" />sent <span className="ml-3 mr-1 inline-block h-2 w-2 bg-sent" />replies</span>
-                <span>{stats.data[stats.data.length - 1].day}</span>
-              </p>
-            </section>
-          )}
-          {d.today.manual_apply > 0 && (
-            <p className="mt-8 text-sm">
-              {d.today.manual_apply} good {d.today.manual_apply === 1 ? "match takes" : "matches take"} applications on the employer&apos;s own site.{" "}
-              <Link className="underline" href="/drafts">See them in Drafts</Link>
+
+          <section className="mt-8" aria-label="This week">
+            <h2 className="text-xl">This week</h2>
+            <p className="mt-2 text-sm">
+              <strong>{h.week.applied}</strong> applied · <strong>{h.week.replies}</strong> {h.week.replies === 1 ? "reply" : "replies"} ·{" "}
+              <strong>{h.week.interviews}</strong> {h.week.interviews === 1 ? "interview" : "interviews"} · <strong>{h.week.checked}</strong> jobs checked
             </p>
-          )}
-          <h2 className="mt-8 text-xl">Searches</h2>
-          {d.campaigns.length === 0 ? (
-            <p className="mt-2 text-sm">No search yet. <Link className="underline" href="/setup">Describe the jobs you want</Link></p>
-          ) : (
-            <ul className="mt-2 text-sm">
-              {d.campaigns.map((c) => (
-                <li key={c.id} className="flex justify-between border-b border-rule py-2">
-                  <Link className="underline" href="/campaigns">{c.name}</Link>
-                  <span className="text-slate">{c.state === "active" ? "Running" : c.state === "dry_run" ? "Dry run" : "Paused"}</span>
-                </li>
-              ))}
-            </ul>
-          )}
+            {h.try_it_first && <p className="mt-1 text-sm text-slate">Try-it-first is on, so nothing has been sent. Applications show what would have gone out.</p>}
+          </section>
+
+          <section className="mt-8" aria-label="Latest">
+            <h2 className="text-xl">Latest</h2>
+            {h.latest.length === 0 && h.skipped.total === 0 ? <p className="mt-2 text-sm text-slate">Nothing yet. The first results appear after the first search.</p> : (
+              <ul className="mt-2 divide-y divide-rule border-y border-rule text-sm">
+                {h.latest.map((l, i) => (
+                  <li key={i} className="flex flex-wrap gap-x-3 py-2">
+                    <span className="w-28 shrink-0 text-slate">{fmtDate(l.at)}</span>
+                    <span className="w-16 shrink-0 font-semibold">{l.kind === "applied" ? "Applied" : "Reply"}</span>
+                    <Link className="underline" href={l.href}>{l.text}</Link>
+                    {l.note && <span className="text-slate">{l.note}</span>}
+                  </li>
+                ))}
+                {h.skipped.total > 0 && (
+                  <li className="py-2">
+                    <details>
+                      <summary className="cursor-pointer"><span className="mr-3 text-slate">Last 24 hours</span><span className="mr-3 font-semibold">Skipped</span>{h.skipped.total} jobs</summary>
+                      <ul className="mt-2 list-disc pl-6 text-slate">{h.skipped.reasons.map((r) => <li key={r.reason}>{r.count}: {r.reason}</li>)}</ul>
+                    </details>
+                  </li>
+                )}
+              </ul>
+            )}
+          </section>
         </>
       )}
     </Shell>
   );
+}
+
+export default function Page() {
+  const [mode, setMode] = useState<"loading" | "out" | "in">("loading");
+  useEffect(() => setMode(getToken() ? "in" : "out"), []);
+  if (mode === "loading") return null;
+  return mode === "in" ? <HomeScreen /> : <FrontDoor />;
 }

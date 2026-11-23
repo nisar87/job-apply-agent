@@ -8,15 +8,9 @@ import { api, getToken, loginPath, setToken } from "@/lib/api";
 type Me = { id: string; email: string; name: string; is_admin?: boolean; environment?: string; sends_for_real?: boolean };
 
 const NAV = [
-  { href: "/", label: "Today" },
+  { href: "/", label: "Home" },
   { href: "/applications", label: "Applications" },
-  { href: "/drafts", label: "Drafts" },
-  { href: "/inbox", label: "Inbox" },
-  { href: "/campaigns", label: "Searches" },
-  { href: "/sources", label: "Where we look" },
-  { href: "/cvs", label: "CVs and facts" },
-  { href: "/setup", label: "Setup chat" },
-  { href: "/account", label: "Account" },
+  { href: "/settings", label: "Settings" },
 ];
 
 export default function Shell({ title, children, actions }: { title: string; children: React.ReactNode; actions?: React.ReactNode }) {

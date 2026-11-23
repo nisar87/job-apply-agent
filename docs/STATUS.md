@@ -46,9 +46,25 @@ Still open in phase 3: practice forms for all eight systems (the acceptance test
 The submissions themselves need the owner's account, a deployment of `v2-build`, and the owner's approvals; they
 have not started.
 
+## Version 2, phase 5 (new interface), first version on branch v2-build
+
+| Screen | What it is now |
+| --- | --- |
+| Front door | Signed-out visitors see one sentence, three steps, "Create your account" and "Sign in" |
+| Setup (`/setup`) | Four steps with resume: your CV (with "here is what I understood"), your Gmail and report address, what you want (in your own words, countries you may work in, visa yes/no), review with "Try it first" |
+| Home (`/`) | Status line with Pause/Resume, "Needs you", this week, latest, and why jobs were skipped; fed by `GET /api/home` |
+| Applications | Tabs All, Applied, Replied, Interview, Closed, Needs you, Skipped; search |
+| Settings | Collapsed sections: what you want (state, daily number, how picky), CV and facts, where and how much, mail, reports, model keys, never contact, data and password |
+| Menu | Home, Applications, Settings (Admin for operators) |
+
+The old screens (Drafts, Inbox, Searches, Where we look, CVs, Account, setup chat at `/setup-chat`) still exist
+as deep links that Settings points to; they are removed after the owner signs off each new screen. Not done in
+phase 5: moving the CV, search-detail and block-list editors fully into Settings, rewriting `e2e/smoke.py` for the
+new flow, the keyboard-only and 360-pixel passes, and the three-new-users test.
+
 Not yet built from the roadmap: the labelled 200-posting regression set (needs the owner's "would apply" labels), per-provider spend column and key screens, the new interface (5), background scale (6), supply work (7), Gmail sign-in (8), CV tailoring client (9).
 
-271 backend tests pass (with the migration database from `scripts/init-db.sql`); lint passes.
+274 backend tests pass (with the migration database from `scripts/init-db.sql`); lint passes.
 
 Not yet done in phase 0: a physically separate live deployment (own Cloud Run service, database and Gmail
 connection) for the owner's real job hunt, so the test site is only ever a test site. That is infrastructure, needs

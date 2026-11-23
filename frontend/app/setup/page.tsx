@@ -1,47 +1,103 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { useCountries } from "@/components/CountryPicker";
+import { useEffect, useState } from "react";
+import CountryPicker, { useCountries } from "@/components/CountryPicker";
+import JobGmail from "@/components/JobGmail";
+import MainEmail from "@/components/MainEmail";
 import Shell from "@/components/Shell";
-import { ErrorNote, errorText } from "@/components/ui";
+import { ErrorNote, errorText, useLoad } from "@/components/ui";
 import { api } from "@/lib/api";
-import type { CampaignConfig } from "@/lib/types";
+import type { CV, CampaignConfig } from "@/lib/types";
 
-type Turn = { role: "user" | "agent"; text: string };
-type Reply = {
-  reply: string; config: CampaignConfig; campaign_name: string; preferences: string[]; ready: boolean;
-  status: { missing: string[] };
+type Status = { has_cv: boolean; mail_connected: boolean };
+type Profile = {
+  name?: string; location?: string; total_years_experience?: number; level?: string; role_families?: string[];
+  skills?: { name: string }[]; languages?: { name: string; level?: string }[]; roles?: { title: string }[];
 };
+type Reply = { reply: string; config: CampaignConfig; campaign_name: string; preferences: string[]; ready: boolean };
 
-const MISSING: Record<string, { text: string; href: string }> = {
-  cv: { text: "Upload a CV", href: "/cvs" },
-  mail: { text: "Connect your job Gmail", href: "/account" },
-  escalation_email: { text: "Add an address for urgent replies", href: "/account" },
-  fact_sheet: { text: "Fill in the fact sheet", href: "/cvs" },
-};
+const STEP_TITLES = ["Your CV", "Your Gmail", "What you want", "Review"];
+
+function Understood({ cvId }: { cvId: string }) {
+  const profile = useLoad<{ profile: Profile }>(`/api/cvs/${cvId}/profile`);
+  const p = profile.data?.profile;
+  if (!p) return <p className="mt-4 text-sm text-slate">Reading your CV…</p>;
+  const rows: [string, string][] = [
+    ["Name", p.name || "not found"],
+    ["Based in", p.location || "not found"],
+    ["Experience", p.total_years_experience ? `${Math.round(p.total_years_experience)} years` : "not found"],
+    ["Work you do", p.roles?.[0]?.title || [p.level, ...(p.role_families || [])].filter(Boolean).join(" ") || "not found"],
+    ["Main skills", (p.skills || []).slice(0, 8).map((s) => s.name).join(", ") || "not found"],
+    ["Languages", (p.languages || []).map((l) => l.name).join(", ") || "not found"],
+  ];
+  return (
+    <section className="mt-6" aria-label="What I understood">
+      <h3 className="text-xl">Here is what I understood</h3>
+      <dl className="mt-2 max-w-xl text-sm">
+        {rows.map(([k, v]) => (
+          <div key={k} className="flex justify-between gap-4 border-b border-rule py-1"><dt className="text-slate">{k}</dt><dd className="text-right">{v}</dd></div>
+        ))}
+      </dl>
+      <p className="mt-2 text-xs text-slate">Something wrong? Carry on; you can correct it any time under Settings, Your CV and facts.</p>
+    </section>
+  );
+}
 
 export default function Setup() {
   const router = useRouter();
-  const [history, setHistory] = useState<Turn[]>([]);
-  const [text, setText] = useState("");
-  const [last, setLast] = useState<Reply | null>(null);
-  const [busy, setBusy] = useState(false);
+  const status = useLoad<Status>("/api/setup/status");
+  const cvs = useLoad<CV[]>("/api/cvs");
+  const [step, setStep] = useState(0);
+  const [started, setStarted] = useState(false);
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [wish, setWish] = useState("");
+  const [plan, setPlan] = useState<Reply | null>(null);
+  const [countries, setCountries] = useState<string[]>([]);
+  const [sponsor, setSponsor] = useState(true);
+  const [tryFirst, setTryFirst] = useState(true);
+  const { name: countryName } = useCountries();
+  const facts = useLoad<Record<string, unknown>>("/api/fact-sheet");
 
-  async function send(e: React.FormEvent) {
+  // Resume where the person left off: the first step that is not done yet.
+  useEffect(() => {
+    if (started || !status.data || !cvs.data) return;
+    setStarted(true);
+    setStep(!status.data.has_cv ? 0 : !status.data.mail_connected ? 1 : 2);
+  }, [status.data, cvs.data, started]);
+  useEffect(() => {
+    const rtw = facts.data?.right_to_work_countries;
+    if (Array.isArray(rtw) && countries.length === 0) setCountries(rtw as string[]);
+  }, [facts.data]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const cv = (cvs.data || []).find((c) => c.active);
+
+  async function upload(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (!text.trim()) return;
-    const next: Turn[] = [...history, { role: "user", text }];
-    setHistory(next);
-    setText("");
+    const formEl = e.currentTarget;
+    const form = new FormData(formEl);
+    form.set("label", "My CV");
     setBusy(true);
     setError("");
     try {
-      const out = await api<Reply>("/api/setup/turn", { method: "POST", json: { history: next, draft: last?.config } });
-      setLast(out);
-      setHistory([...next, { role: "agent", text: out.reply }]);
+      await api("/api/cvs", { method: "POST", body: form });
+      cvs.reload();
+      status.reload();
+    } catch (err) {
+      setError(`I could not read that file: ${errorText(err)} Please try another file (PDF, DOCX or TXT, up to 5 MB).`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function readWish(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const out = await api<Reply>("/api/setup/turn", { method: "POST", json: { history: [{ role: "user", text: wish }], draft: plan?.config } });
+      setPlan(out);
     } catch (err) {
       setError(errorText(err));
     } finally {
@@ -49,78 +105,125 @@ export default function Setup() {
     }
   }
 
-  async function start(state: "active" | "dry_run") {
-    if (!last) return;
+  async function saveStep3() {
+    setBusy(true);
     setError("");
     try {
-      await api("/api/campaigns", { method: "POST", json: { name: last.campaign_name, config: last.config, preferences: last.preferences, state } });
-      router.push("/campaigns");
+      const current = await api<Record<string, unknown>>("/api/fact-sheet");
+      await api("/api/fact-sheet", { method: "PUT", json: { ...current, right_to_work_countries: countries, accept_sponsorship: sponsor } });
+      setStep(3);
     } catch (err) {
       setError(errorText(err));
+    } finally {
+      setBusy(false);
     }
   }
 
-  const { name: countryName } = useCountries();
-  const c = last?.config;
+  async function start() {
+    if (!plan) return;
+    setBusy(true);
+    setError("");
+    try {
+      const config = { ...plan.config, daily_quota: Math.min(plan.config.daily_quota || 10, 10) };
+      await api("/api/campaigns", { method: "POST", json: { name: plan.campaign_name, config, preferences: plan.preferences, state: tryFirst ? "dry_run" : "active" } });
+      router.push("/");
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
-    <Shell title="Setup chat">
-      <div className="grid gap-8 lg:grid-cols-[1fr_20rem]">
-        <section className="min-w-0">
-          <p className="max-w-prose text-sm text-slate">
-            Describe your job search the way you would to a person. For example: “Apply to 10 remote backend jobs a day at Austrian companies, posted in the last week, and never the same company twice in 15 days.”
-          </p>
-          <ol className="mt-4 space-y-3" aria-live="polite">
-            {history.map((t, i) => (
-              <li key={i} className={`max-w-prose whitespace-pre-wrap p-3 text-sm ${t.role === "user" ? "ml-auto bg-ink text-white" : "letter border border-rule bg-sheet leading-7"}`}>{t.text}</li>
-            ))}
-            {busy && <li className="text-sm text-slate">Reading your instructions…</li>}
-          </ol>
-          <ErrorNote message={error} />
-          <form onSubmit={send} className="mt-4 flex gap-2">
-            <textarea className="field min-h-24" value={text} onChange={(e) => setText(e.target.value)} placeholder="What jobs should I apply to?" aria-label="Your instruction" />
-            <button className="btn self-end" disabled={busy}>Send</button>
-          </form>
+    <Shell title="Set up your agent">
+      <p className="text-sm text-slate" aria-live="polite">Step {step + 1} of 4 · {STEP_TITLES[step]}</p>
+      <ErrorNote message={error} />
+
+      {step === 0 && (
+        <section className="mt-4 max-w-xl">
+          <h2 className="text-xl">Your CV</h2>
+          {!cv ? (
+            <form onSubmit={upload} className="mt-3 border border-dashed border-rule p-6">
+              <label className="text-sm">Choose your CV (PDF, DOCX or TXT, up to 5 MB)
+                <input className="field mt-2" type="file" name="file" accept=".pdf,.docx,.txt" required />
+              </label>
+              <button className="btn mt-4" disabled={busy}>{busy ? "Reading your CV…" : "Read my CV"}</button>
+            </form>
+          ) : (
+            <>
+              <Understood cvId={cv.id} />
+              <button className="btn mt-6" onClick={() => setStep(1)}>Looks right</button>
+            </>
+          )}
         </section>
-        <aside className="text-sm">
-          <h2 className="text-xl">What I understood</h2>
-          {!c ? <p className="mt-2 text-slate">Your settings appear here as you describe them.</p> : (
-            <dl className="mt-2 space-y-2">
-              {[
-                ["Looking for", c.keywords.join(", ") || "not said yet"],
-                ["Countries", c.countries.length ? c.countries.map(countryName).join(", ") : "anywhere"],
-                ...(c.countries.length && !c.remote_outside_countries ? [["Remote elsewhere", "no"]] : []),
-                ["Work mode", c.work_modes.join(", ") || "any"],
-                ["Per day", String(c.daily_quota)],
-                ["Send window", `${c.send_window.start} to ${c.send_window.end}`],
-                ["Posted within", c.max_posting_age_days ? `${c.max_posting_age_days} days` : "any age"],
-                ["Match threshold", String(c.match_threshold)],
-                ["Same company again", `after ${c.company_cooldown_days} days`],
-              ].map(([k, v]) => (
-                <div key={k} className="flex justify-between gap-3 border-b border-rule pb-1"><dt className="text-slate">{k}</dt><dd className="text-right">{v}</dd></div>
-              ))}
-            </dl>
-          )}
-          {last && last.preferences.length > 0 && (
-            <>
-              <h3 className="mt-5 font-semibold">Standing instructions</h3>
-              <ul className="mt-1 list-disc pl-5">{last.preferences.map((p) => <li key={p}>{p}</li>)}</ul>
-            </>
-          )}
-          {last && last.status.missing.length > 0 && (
-            <>
-              <h3 className="mt-5 font-semibold">Still needed</h3>
-              <ul className="mt-1 list-disc pl-5">{last.status.missing.map((m) => <li key={m}><Link className="underline" href={MISSING[m]?.href || "/"}>{MISSING[m]?.text || m}</Link></li>)}</ul>
-            </>
-          )}
-          {c && c.keywords.length > 0 && (
-            <div className="mt-6 space-y-2">
-              <button className="btn w-full justify-center" disabled={!last?.ready} onClick={() => start("active")}>Start this search</button>
-              <button className="btn btn-quiet w-full justify-center" onClick={() => start("dry_run")}>Start as a dry run</button>
-              <p className="text-xs text-slate">Every draft waits for your approval until you change that in the search settings.</p>
-            </div>
-          )}
-        </aside>
-      </div>
+      )}
+
+      {step === 1 && (
+        <section className="mt-4 max-w-xl">
+          <h2 className="text-xl">Your Gmail</h2>
+          <p className="mt-1 text-sm text-slate">Applications go out from this address and replies come back to it. Use an address kept for job hunting.</p>
+          <JobGmail />
+          <div className="mt-6"><MainEmail /></div>
+          <div className="mt-6 flex gap-2">
+            <button className="btn btn-quiet" onClick={() => setStep(0)}>Back</button>
+            <button className="btn" disabled={!status.data?.mail_connected} onClick={() => setStep(2)}>Continue</button>
+          </div>
+        </section>
+      )}
+
+      {step === 2 && (
+        <section className="mt-4 max-w-xl">
+          <h2 className="text-xl">What you want</h2>
+          <form onSubmit={readWish}>
+            <label className="text-sm">In your own words: which jobs, where, anything to avoid.
+              <textarea className="field mt-1 min-h-28" value={wish} onChange={(e) => setWish(e.target.value)} required
+                placeholder="Senior backend engineer roles using C# and .NET, remote or in countries that sponsor a visa." />
+            </label>
+            <button className="btn btn-quiet mt-2" disabled={busy || !wish.trim()}>{busy ? "Reading…" : plan ? "Read it again" : "Read this"}</button>
+          </form>
+          {plan && <p className="mt-3 border-l-4 border-rule bg-sheet px-3 py-2 text-sm">{plan.reply}</p>}
+          <div className="mt-6">
+            <p className="text-sm font-semibold">Where may you work today, without a visa?</p>
+            <p className="text-xs text-slate">Leave empty if nowhere. The agent then applies only to remote jobs and to jobs that offer a visa.</p>
+            <CountryPicker value={countries} onChange={setCountries} />
+            {countries.length > 0 && <p className="mt-1 text-xs text-slate">{countries.map(countryName).join(", ")}</p>}
+          </div>
+          <fieldset className="mt-6">
+            <legend className="text-sm font-semibold">Apply where the employer sponsors a visa?</legend>
+            <label className="mr-6 text-sm"><input type="radio" name="sponsor" checked={sponsor} onChange={() => setSponsor(true)} /> Yes</label>
+            <label className="text-sm"><input type="radio" name="sponsor" checked={!sponsor} onChange={() => setSponsor(false)} /> No</label>
+          </fieldset>
+          <div className="mt-6 flex gap-2">
+            <button className="btn btn-quiet" onClick={() => setStep(1)}>Back</button>
+            <button className="btn" disabled={busy || !plan} onClick={saveStep3}>Continue</button>
+          </div>
+        </section>
+      )}
+
+      {step === 3 && plan && (
+        <section className="mt-4 max-w-xl">
+          <h2 className="text-xl">Review</h2>
+          <p className="mt-2 text-sm font-semibold">Your agent will</p>
+          <ul className="list-disc pl-5 text-sm">
+            <li>look for new jobs every few hours</li>
+            <li>apply to up to 10 a day that fit your CV</li>
+            <li>answer routine questions from employers</li>
+          </ul>
+          <p className="mt-3 text-sm font-semibold">It will ask you about</p>
+          <ul className="list-disc pl-5 text-sm">
+            <li>interview times, salary and offers</li>
+            <li>anything it cannot answer from your CV</li>
+          </ul>
+          <label className="mt-5 flex items-start gap-2 text-sm">
+            <input type="checkbox" className="mt-1" checked={tryFirst} onChange={(e) => setTryFirst(e.target.checked)} />
+            <span><strong>Try it first</strong>: prepare everything, send nothing. You can switch this off in Settings once you have seen what it would send.</span>
+          </label>
+          <div className="mt-6 flex gap-2">
+            <button className="btn btn-quiet" onClick={() => setStep(2)}>Back</button>
+            <button className="btn" disabled={busy} onClick={start}>{busy ? "Starting…" : "Start my agent"}</button>
+          </div>
+        </section>
+      )}
     </Shell>
   );
 }

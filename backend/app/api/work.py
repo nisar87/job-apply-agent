@@ -251,6 +251,13 @@ def dashboard(user_id: uuid.UUID = Depends(current_user_id), session: Session = 
     }
 
 
+@router.get("/home")
+def home(user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
+    from app.services import home as home_service
+
+    return home_service.build(session, user_id)
+
+
 # ---- Notifications ----
 
 @router.get("/notifications", response_model=list[NotificationOut])

@@ -154,7 +154,7 @@ function Editor({ campaign, onSaved }: { campaign: Campaign; onSaved: () => void
 export default function Campaigns() {
   const { data, error, reload } = useLoad<Campaign[]>("/api/campaigns");
   return (
-    <Shell title="Searches" actions={<Link className="btn" href="/setup">Describe a new search</Link>}>
+    <Shell title="Searches" actions={<Link className="btn" href="/setup-chat">Describe a new search</Link>}>
       <ErrorNote message={error} />
       {data && data.length === 0 && <Empty>No search yet. Describe the jobs you want in the setup chat and the agent builds the search from it.</Empty>}
       {(data || []).map((c) => <Editor key={c.id + c.state} campaign={c} onSaved={reload} />)}

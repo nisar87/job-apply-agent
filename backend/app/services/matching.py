@@ -120,7 +120,8 @@ def v2_gates(f: dict, country: str | None, mode: str, fact_sheet: dict) -> list[
         if not country:
             if mode != "remote":
                 fails.append("country is not stated and the job is not clearly remote")
-        elif (country not in rtw and mode != "remote" and f.get("visa_sponsorship") != "yes"
+        elif (country not in rtw and mode != "remote"
+              and not (f.get("visa_sponsorship") == "yes" and fact_sheet.get("accept_sponsorship", True) is not False)
               and not any(free_movement(r, country) for r in rtw)):
             fails.append(f"you have no right to work in {country_name(country)} and the ad does not offer "
                          "visa sponsorship or relocation")

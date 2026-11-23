@@ -80,9 +80,11 @@ FACT_SHEET_FIELDS = [
     "work_languages",  # list of ISO 639-1 codes the user can work in
     "right_to_work_countries",  # list of ISO codes where the user needs no sponsorship; [] = nowhere
     "exclude_home_country",  # true: never apply to jobs located in home_country
+    "accept_sponsorship",  # false: never apply abroad on the strength of a visa offer; only where right to work exists
 ]
 
-V2_KEYS = ("level", "role_families", "work_languages", "right_to_work_countries", "exclude_home_country")
+V2_KEYS = ("level", "role_families", "work_languages", "right_to_work_countries", "exclude_home_country",
+           "accept_sponsorship")
 
 LANGUAGE_CODES = {
     "english": "en", "german": "de", "deutsch": "de", "urdu": "ur", "hindi": "hi", "arabic": "ar", "french": "fr",

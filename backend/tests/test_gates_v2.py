@@ -83,3 +83,10 @@ def test_the_same_job_under_another_link_is_not_applied_to_twice(client, llm):
         from app.services.matching import hard_filters
         ok, fails, _ = hard_filters(s, w.user_id, cfg, second, {})
         assert not ok and any("under another link" in f for f in fails)
+
+
+def test_a_user_who_declines_sponsorship_only_applies_where_they_may_work():
+    facts = {**OWNER, "right_to_work_countries": ["de"], "accept_sponsorship": False, "exclude_home_country": False}
+    assert gates({"visa_sponsorship": "yes"}, country="gb", facts=facts)
+    assert not gates({"visa_sponsorship": "unknown"}, country="de", facts=facts)
+    assert not gates({"visa_sponsorship": "no"}, country="gb", mode="remote", facts=facts)

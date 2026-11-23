@@ -8,10 +8,15 @@ import { Empty, ErrorNote, Postmark, errorText, useLoad } from "@/components/ui"
 import { api, fmtDate } from "@/lib/api";
 import type { Application, Match } from "@/lib/types";
 
-const TABS = [
-  { key: "log", label: "Applications" },
-  { key: "skipped", label: "Skipped" },
-  { key: "manual", label: "Apply by hand" },
+// The four states a person sees, plus what needs them and what the agent passed on.
+const TABS: { key: string; label: string; statuses: string }[] = [
+  { key: "log", label: "All", statuses: "" },
+  { key: "applied", label: "Applied", statuses: "sent,queued,acknowledged,unconfirmed,dry_run" },
+  { key: "replied", label: "Replied", statuses: "in_conversation,offer" },
+  { key: "interview", label: "Interview", statuses: "interview" },
+  { key: "closed", label: "Closed", statuses: "rejected,closed,no_response,undeliverable" },
+  { key: "manual", label: "Needs you", statuses: "manual_apply,form_ready,unconfirmed,failed,awaiting_approval" },
+  { key: "skipped", label: "Skipped", statuses: "" },
 ];
 
 function toCsv(rows: Application[]): string {
@@ -25,14 +30,14 @@ function toCsv(rows: Application[]): string {
 function Log() {
   const params = useSearchParams();
   const [tab, setTab] = useState(params.get("tab") || "log");
-  const [status, setStatus] = useState(params.get("status") || "");
+  const [status] = useState(params.get("status") || "");
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const query = useMemo(() => {
     const p = new URLSearchParams();
-    if (tab === "manual") p.set("status", "manual_apply,form_ready,unconfirmed");
-    else if (status) p.set("status", status);
+    const wanted = TABS.find((t) => t.key === tab)?.statuses || status;
+    if (wanted) p.set("status", wanted);
     if (q) p.set("q", q);
     return `/api/applications?${p.toString()}`;
   }, [tab, status, q]);
@@ -69,23 +74,17 @@ function Log() {
         ))}
       </div>
       <ErrorNote message={error || apps.error || skipped.error} />
-      {tab === "log" && (
+      {tab !== "skipped" && (
         <div className="mb-4 flex flex-wrap gap-3">
-          <input className="field max-w-xs" placeholder="Search company or role" value={q} onChange={(e) => setQ(e.target.value)} />
-          <select className="field max-w-xs" value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status">
-            <option value="">Every status</option>
-            {["awaiting_approval", "queued", "sent", "acknowledged", "in_conversation", "interview", "offer", "rejected", "no_response", "failed", "skipped"].map((s) => (
-              <option key={s} value={s}>{s.replace(/_/g, " ")}</option>
-            ))}
-          </select>
+          <input className="field max-w-xs" placeholder="Search company or role" aria-label="Search company or role" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
       )}
       {tab !== "skipped" && apps.data && (apps.data.length === 0 ? (
-        <Empty>{tab === "manual" ? "No form-only matches right now." : "Nothing here yet. Applications appear once the agent has drafted them."}</Empty>
+        <Empty>{tab === "manual" ? "Nothing needs you." : "Nothing here yet. Applications appear as the agent applies."}</Empty>
       ) : (
         <div className="overflow-x-auto">
           <table className="ledger">
-            <thead><tr><th>Company</th><th>Role</th><th>{tab === "manual" ? "Found" : "Applied"}</th><th>CV</th><th>Score</th><th>Status</th></tr></thead>
+            <thead><tr><th>Company</th><th>Role</th><th>{tab === "manual" ? "Found" : "Date"}</th><th>CV</th><th>Score</th><th>Status</th></tr></thead>
             <tbody>
               {apps.data.map((a) => (
                 <tr key={a.id}>

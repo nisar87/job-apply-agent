@@ -110,3 +110,14 @@ def test_setup_chat_and_api_accept_country_names(client, llm):
     r = client.patch(f"/api/campaigns/{w.campaign_id}", headers=w.headers,
                      json={"config": {**out["config"], "countries": ["Atlantis"]}})
     assert r.status_code == 422 and "Unknown country: Atlantis" in r.json()["detail"]
+
+
+def test_setup_asks_only_for_where_when_no_place_is_given(client, llm):
+    w = make_world(client, llm)
+    llm.on("onboarding", lambda p, s: {
+        "reply": "Got it.", "config": {"keywords": ["backend"]}, "evidence": [
+            {"setting": "keywords", "user_words": "backend"}], "open_question": False, "where_stated": False})
+    out = client.post("/api/setup/turn", headers=w.headers,
+                      json={"history": [{"role": "user", "text": "backend jobs, 5 a day"}]}).json()
+    assert out["needs"] == ["where"] and not out["ready"]
+    assert "say where to look" in out["reply"]

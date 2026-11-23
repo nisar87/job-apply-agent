@@ -2,7 +2,6 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import CountryPicker, { useCountries } from "@/components/CountryPicker";
 import JobGmail from "@/components/JobGmail";
 import MainEmail from "@/components/MainEmail";
 import Shell from "@/components/Shell";
@@ -15,7 +14,7 @@ type Profile = {
   name?: string; location?: string; total_years_experience?: number; level?: string; role_families?: string[];
   skills?: { name: string }[]; languages?: { name: string; level?: string }[]; roles?: { title: string }[];
 };
-type Reply = { reply: string; config: CampaignConfig; campaign_name: string; preferences: string[]; ready: boolean };
+type Reply = { needs?: string[]; reply: string; config: CampaignConfig; campaign_name: string; preferences: string[]; ready: boolean };
 
 const STEP_TITLES = ["Your CV", "Your Gmail", "What you want", "Review"];
 
@@ -54,10 +53,8 @@ export default function Setup() {
   const [busy, setBusy] = useState(false);
   const [wish, setWish] = useState("");
   const [plan, setPlan] = useState<Reply | null>(null);
-  const [countries, setCountries] = useState<string[]>([]);
-  const [sponsor, setSponsor] = useState(true);
+  const [about, setAbout] = useState({ salary: "", start: "", phone: "" });
   const [tryFirst, setTryFirst] = useState(true);
-  const { name: countryName } = useCountries();
   const facts = useLoad<Record<string, unknown>>("/api/fact-sheet");
 
   // Resume where the person left off: the first step that is not done yet.
@@ -68,10 +65,14 @@ export default function Setup() {
     setStep(!status.data.has_cv ? 0 : !status.data.mail_connected || !status.data.escalation_email ? 1 : 2);
   }, [status.data, cvs.data, started]);
   useEffect(() => {
-    const rtw = facts.data?.right_to_work_countries;
-    if (Array.isArray(rtw) && countries.length === 0) // eslint-disable-next-line react-hooks/set-state-in-effect
-      setCountries(rtw as string[]);
-  }, [facts.data]); // eslint-disable-line react-hooks/exhaustive-deps
+    const f = facts.data;
+    if (!f) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setAbout((a) => ({
+      salary: a.salary || (f.salary_expectation ? `${f.salary_expectation}${f.salary_currency ? " " + f.salary_currency : ""}` : ""),
+      start: a.start || String(f.earliest_start || f.notice_period || ""), phone: a.phone || String(f.phone || ""),
+    }));
+  }, [facts.data]);
 
   const cv = (cvs.data || []).find((c) => c.active);
 
@@ -112,7 +113,12 @@ export default function Setup() {
     setError("");
     try {
       const current = await api<Record<string, unknown>>("/api/fact-sheet");
-      await api("/api/fact-sheet", { method: "PUT", json: { ...current, right_to_work_countries: countries, accept_sponsorship: sponsor } });
+      await api("/api/fact-sheet", { method: "PUT", json: {
+        ...current,
+        ...(about.salary.trim() ? { salary_expectation: about.salary.trim() } : {}),
+        ...(about.start.trim() ? { earliest_start: about.start.trim() } : {}),
+        ...(about.phone.trim() ? { phone: about.phone.trim() } : {}),
+      } });
       setStep(3);
     } catch (err) {
       setError(errorText(err));
@@ -181,25 +187,30 @@ export default function Setup() {
           <form onSubmit={readWish}>
             <label className="text-sm">In your own words: which jobs, where, anything to avoid.
               <textarea className="field mt-1 min-h-28" value={wish} onChange={(e) => setWish(e.target.value)} required
-                placeholder="Senior backend engineer roles using C# and .NET, remote or in countries that sponsor a visa." />
+                placeholder="Remote or relocation jobs in Europe, Canada and the US, Austria first, not in Pakistan, 5 to 8 a day." />
             </label>
             <button className="btn btn-quiet mt-2" disabled={busy || !wish.trim()}>{busy ? "Reading…" : plan ? "Read it again" : "Read this"}</button>
           </form>
           {plan && <p className="mt-3 border-l-4 border-rule bg-sheet px-3 py-2 text-sm">{plan.reply}</p>}
-          <div className="mt-6">
-            <p className="text-sm font-semibold">Where may you work today, without a visa?</p>
-            <p className="text-xs text-slate">Leave empty if nowhere. The agent then applies only to remote jobs and to jobs that offer a visa.</p>
-            <CountryPicker value={countries} onChange={setCountries} />
-            {countries.length > 0 && <p className="mt-1 text-xs text-slate">{countries.map(countryName).join(", ")}</p>}
+          {plan?.needs?.includes("where") && <p className="mt-3 text-sm text-problem">Add where to look to your text, then press &quot;Read it again&quot;.</p>}
+          <div className="mt-6 max-w-xl">
+            <p className="text-sm font-semibold">About you, once (employers ask for these)</p>
+            <div className="mt-2 grid gap-3 sm:grid-cols-3">
+              <label className="text-sm">Expected salary a year
+                <input className="field mt-1" value={about.salary} onChange={(e) => setAbout({ ...about, salary: e.target.value })} placeholder="60000 EUR" />
+              </label>
+              <label className="text-sm">Earliest start or notice
+                <input className="field mt-1" value={about.start} onChange={(e) => setAbout({ ...about, start: e.target.value })} placeholder="2 weeks" />
+              </label>
+              <label className="text-sm">Phone (optional)
+                <input className="field mt-1" value={about.phone} onChange={(e) => setAbout({ ...about, phone: e.target.value })} placeholder="+43…" />
+              </label>
+            </div>
+            <p className="mt-1 text-xs text-slate">Leave any empty: the agent never makes these up. It asks you only if an employer needs one.</p>
           </div>
-          <fieldset className="mt-6">
-            <legend className="text-sm font-semibold">Apply where the employer sponsors a visa?</legend>
-            <label className="mr-6 text-sm"><input type="radio" name="sponsor" checked={sponsor} onChange={() => setSponsor(true)} /> Yes</label>
-            <label className="text-sm"><input type="radio" name="sponsor" checked={!sponsor} onChange={() => setSponsor(false)} /> No</label>
-          </fieldset>
           <div className="mt-6 flex gap-2">
             <button className="btn btn-quiet" onClick={() => setStep(1)}>Back</button>
-            <button className="btn" disabled={busy || !plan} onClick={saveStep3}>Continue</button>
+            <button className="btn" disabled={busy || !plan || !!plan.needs?.length} onClick={saveStep3}>Continue</button>
           </div>
         </section>
       )}

@@ -72,8 +72,11 @@ ONBOARDING_SCHEMA = {
                         "description": "Standing instructions that are not one of the settings above"},
         "escalation_email": {"type": "string"},
         "open_question": {"type": "boolean", "description": "True if the reply asks the user something"},
+        "where_stated": {"type": "boolean",
+                         "description": "True only if the user said where to look: a country, a region, anywhere or "
+                                        "worldwide, or remote only. False if no place was mentioned at all"},
     },
-    "required": ["reply", "config"],
+    "required": ["reply", "config", "where_stated"],
 }
 
 SYSTEM = """You set up a job application agent for one user. Read the conversation and extract the settings \
@@ -97,6 +100,9 @@ in countries and never leave it only as a standing instruction.
 Work mode: "remote or relocation", "remote or visa", "remote or anywhere that sponsors" are NOT a restriction: leave \
 work_modes out so remote and relocation jobs both qualify. Put "remote" into work_modes only when the user wants \
 remote jobs and nothing else.
+Set where_stated true only when the user said where to look (a country or region, "anywhere", "worldwide" or \
+"remote"); if no place is mentioned at all set it false and make the reply ONE short request: "Please say where to \
+look: a country, a region such as Europe, or anywhere."
 Numbers: "at least 5 to 8 a day" is daily_quota 8; "at most N a day" is N. Quality words such as "quality jobs" are \
 not a setting. Do not ask a question when the answer is already in the message; ask only when two instructions \
 truly contradict.
@@ -259,10 +265,15 @@ def onboarding_turn(session: Session, llm: LLMClient, user_id: uuid.UUID, histor
         status = setup_status(session, user_id)
     if status["missing"] and not data.get("open_question", False):
         reply += " Before I can start, please " + ", ".join(MISSING_TEXT.get(m, m) for m in status["missing"]) + "."
+    where_known = bool(data.get("where_stated", True)) or bool(config.get("countries")) or bool(config.get("priority_countries"))
+    needs = [] if where_known else ["where"]
+    if needs and "where" not in reply.lower():
+        reply += " Please say where to look: a country, a region such as Europe, or anywhere."
     return {
+        "needs": needs,
         "reply": reply, "config": config, "campaign_name": data.get("campaign_name") or "My job search",
         "preferences": [p for p in (data.get("preferences") or []) if str(p).strip()][:10],
         "not_taken_over": dropped, "keywords_from_cv": keywords_from_cv,
         "status": status, "ready": not status["missing"] and not problems and not data.get("open_question", False)
-        and bool(config.get("keywords")),
+        and bool(config.get("keywords")) and not needs,
     }

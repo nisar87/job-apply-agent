@@ -7,10 +7,16 @@ import { api, getToken, loginPath, setToken } from "@/lib/api";
 
 type Me = { id: string; email: string; name: string; is_admin?: boolean; environment?: string; sends_for_real?: boolean };
 
-const NAV = [
-  { href: "/", label: "Home" },
-  { href: "/applications", label: "Applications" },
-  { href: "/settings", label: "Settings" },
+const NAV: { group: string; items: { href: string; label: string }[] }[] = [
+  { group: "Main", items: [
+    { href: "/", label: "Overview" }, { href: "/applications", label: "Applications" }, { href: "/inbox", label: "Replies" },
+  ] },
+  { group: "Your agent", items: [
+    { href: "/campaigns", label: "My search" }, { href: "/cvs", label: "My CV" }, { href: "/sources", label: "Job sources" },
+  ] },
+  { group: "Account", items: [
+    { href: "/settings", label: "Settings" }, { href: "/account", label: "Account and keys" },
+  ] },
 ];
 
 export default function Shell({ title, children, actions }: { title: string; children: React.ReactNode; actions?: React.ReactNode }) {
@@ -37,7 +43,7 @@ export default function Shell({ title, children, actions }: { title: string; chi
       .catch(() => undefined);
   }, [router]);
 
-  const nav = me?.is_admin ? [...NAV, { href: "/operator", label: "Admin" }] : NAV;
+  const nav = me?.is_admin ? [...NAV, { group: "Admin", items: [{ href: "/operator", label: "Operator" }] }] : NAV;
 
   function signOut() {
     setToken(null);
@@ -52,24 +58,28 @@ export default function Shell({ title, children, actions }: { title: string; chi
 
   return (
     <div className="mx-auto flex min-h-screen max-w-6xl flex-col md:flex-row">
-      <nav className="border-b border-rule px-4 py-4 md:w-52 md:shrink-0 md:border-b-0 md:border-r md:py-8" aria-label="Main">
+      <nav className="border-b border-rule px-4 py-4 md:w-56 md:shrink-0 md:border-b-0 md:border-r md:py-8" aria-label="Main">
         <p className="letter text-lg">Job Apply Agent</p>
-        <ul className="mt-4 flex flex-wrap gap-x-4 gap-y-1 text-sm md:block md:space-y-1">
-          {nav.map((item) => {
-            const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
-            return (
-              <li key={item.href}>
-                <Link
-                  href={item.href}
-                  aria-current={active ? "page" : undefined}
-                  className={`block rounded px-2 py-2 md:py-1 ${active ? "bg-ink text-white" : "text-ink hover:bg-rule"}`}
-                >
-                  {item.label}
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
+        <div className="mt-4 flex flex-wrap gap-x-6 gap-y-3 md:block md:space-y-5">
+          {nav.map((g) => (
+            <div key={g.group}>
+              <p className="hidden px-2 text-xs font-semibold text-quiet md:block">{g.group}</p>
+              <ul className="flex flex-wrap gap-x-2 text-sm md:mt-1 md:block md:space-y-0.5">
+                {g.items.map((item) => {
+                  const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+                  return (
+                    <li key={item.href}>
+                      <Link href={item.href} aria-current={active ? "page" : undefined}
+                        className={`block rounded-md px-2 py-2 md:py-1.5 ${active ? "bg-ink font-semibold text-white" : "text-ink hover:bg-rule"}`}>
+                        {item.label}
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
+        </div>
         <div className="mt-3 flex items-center gap-3 text-xs text-slate md:mt-6 md:block">
           {me && <p className="truncate">{me.email}</p>}
           <button className="py-2 underline md:mt-1 md:py-0" onClick={signOut}>Sign out</button>

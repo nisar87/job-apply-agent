@@ -96,3 +96,9 @@ def test_europe_canada_and_the_us_can_be_chosen_as_a_search_area():
     from app.services.campaigns import CampaignConfig
     cfg = CampaignConfig(countries=["Europe", "Canada", "usa"], work_modes=["remote"])
     assert {"de", "fr", "gb", "pl", "ca", "us"} <= set(cfg.countries) and "pk" not in cfg.countries
+
+
+def test_a_country_the_person_excluded_is_skipped_even_for_remote_jobs():
+    from app.services.campaigns import CampaignConfig
+    cfg = CampaignConfig(exclude_countries=["Pakistan"])
+    assert cfg.exclude_countries == ["pk"]

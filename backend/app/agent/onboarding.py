@@ -30,6 +30,8 @@ ONBOARDING_SCHEMA = {
                               "description": "Countries to apply within, ISO alpha-2, lower case"},
                 "priority_countries": {"type": "array", "items": {"type": "string"},
                                        "description": "Countries the user wants most; applied to first. Does not limit the search"},
+                "exclude_countries": {"type": "array", "items": {"type": "string"},
+                                      "description": "Countries never to apply in, even for remote jobs (ISO alpha-2, lower case)"},
                 "remote_outside_countries": {
                     "type": "boolean",
                     "description": "false when the user wants only jobs based in the named countries, even remote "
@@ -89,8 +91,9 @@ config, each with its quote. Countries are ISO codes: Germany is de, Austria is 
 
 Places: "every country", "worldwide", "anywhere" or "all countries except X" mean NO country limit: leave countries out \
 entirely, never list the countries one by one. A country the user calls most important, first or preferred goes in \
-priority_countries and never in countries. "Europe" may be given as a country entry. A country to avoid is not a \
-country to search: do not put it in countries (the product skips the user's own country by itself).
+priority_countries and never in countries. "Europe" may be given as a country entry. A country to avoid \
+("not in Pakistan", "never X", "except X") goes in exclude_countries with the user's words as evidence; never put it \
+in countries and never leave it only as a standing instruction.
 Work mode: "remote or relocation", "remote or visa", "remote or anywhere that sponsors" are NOT a restriction: leave \
 work_modes out so remote and relocation jobs both qualify. Put "remote" into work_modes only when the user wants \
 remote jobs and nothing else.
@@ -139,7 +142,7 @@ def stated_settings(patch: dict, evidence: list, history: list[dict]) -> tuple[d
 
 
 _LABELS = {
-    "keywords": "roles", "countries": "countries", "priority_countries": "countries applied to first", "remote_outside_countries": "remote jobs from other countries",
+    "keywords": "roles", "countries": "countries", "priority_countries": "countries applied to first", "exclude_countries": "never apply in", "remote_outside_countries": "remote jobs from other countries",
     "locations": "locations", "work_modes": "work mode",
     "contract_types": "contract type", "seniority": "seniority", "languages": "posting languages",
     "salary_min": "minimum yearly salary", "max_posting_age_days": "posted within (days)",

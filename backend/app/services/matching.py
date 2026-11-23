@@ -139,6 +139,8 @@ def hard_filters(
         fails.append("posting is closed")
     country = posting.country
     mode = f.get("work_mode") or "unknown"
+    if country and country in config.exclude_countries:        # a country the person never wants, remote or not
+        fails.append(f"the job is in {country_name(country)}, which you excluded")
     if config.countries:
         if not country:
             notes.append("country not stated")

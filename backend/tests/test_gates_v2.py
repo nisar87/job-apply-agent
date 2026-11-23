@@ -63,3 +63,23 @@ def test_free_movement_inside_the_eu_needs_no_sponsorship():
     facts = {**OWNER, "home_country": "de", "right_to_work_countries": ["de"], "exclude_home_country": False}
     assert not gates({"visa_sponsorship": "unknown"}, country="at", facts=facts)
     assert gates({"visa_sponsorship": "unknown"}, country="gb", facts=facts)
+
+
+def test_the_same_job_under_another_link_is_not_applied_to_twice(client, llm):
+    from app.models import Application
+    from app.services import postings as posting_service
+    from app.services.campaigns import get_config
+    from tests.helpers import always_ok, campaign_of, make_world, raw
+
+    w = make_world(client, llm)
+    with w.session() as s:
+        campaign = campaign_of(s, w)
+        cfg = get_config(campaign)
+        first = posting_service.ingest(s, llm, raw(title="Backend Engineer", company="Acme GmbH", location="Berlin"), mail_check=always_ok)[0]
+        second = posting_service.ingest(s, llm, raw(title="Backend  Engineer", company="Acme GmbH", location="Munich", source="other"), mail_check=always_ok)[0]
+        assert first.id != second.id and first.company_id == second.company_id
+        s.add(Application(user_id=w.user_id, campaign_id=campaign.id, posting_id=first.id, company_id=first.company_id, status="sent", route="email", idempotency_key="test-dup-1"))
+        s.flush()
+        from app.services.matching import hard_filters
+        ok, fails, _ = hard_filters(s, w.user_id, cfg, second, {})
+        assert not ok and any("under another link" in f for f in fails)

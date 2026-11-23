@@ -205,6 +205,17 @@ def hard_filters(
     ).first()
     if already:
         fails.append("already handled")
+    elif posting.company_id:
+        # The same job posted again under another link or place: same employer, same title (specification, gate "Legitimacy")
+        from app.services.postings import _norm
+
+        titles = session.execute(
+            select(Posting.title).join(Application, Application.posting_id == Posting.id)
+            .where(Application.user_id == user_id, Posting.company_id == posting.company_id,
+                   Posting.id != posting.id, Application.status.notin_(("skipped", "failed")))
+        ).scalars().all()
+        if _norm(posting.title) in {_norm(t) for t in titles}:
+            fails.append("already handled: the same job at this employer was applied to under another link")
     return (not fails), fails, notes
 
 

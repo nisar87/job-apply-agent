@@ -43,6 +43,6 @@ jobs:
           EXTRA: ${{ inputs.extra }}
         run: |
           gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=jaa-api AND ($EXTRA) AND timestamp>=\"$(date -u -d "${{ inputs.minutes }} minutes ago" +%Y-%m-%dT%H:%M:%SZ)\"" \
-            --project job-apply-agent-staging --limit 30 --order desc --format='value(timestamp,severity,textPayload,httpRequest.status,httpRequest.requestUrl)' || true
+            --project job-apply-agent-staging --limit 8 --order desc --format=json | python3 -c "import json,sys;[print(json.dumps({k:e.get(k) for k in ('timestamp','severity','textPayload','httpRequest','jsonPayload')},default=str)[:900]) for e in json.load(sys.stdin)]" || true
       - name: Revisions
         run: gcloud run revisions list --service jaa-api --region europe-west1 --project job-apply-agent-staging --limit 4 || true

@@ -36,9 +36,19 @@ below has been deployed to the live site yet.
 
 Still open in phase 3: practice forms for all eight systems (the acceptance test) and the 30-job review on real jobs in dry run; both need your live account.
 
+## Version 2, phase 4 (first real submissions), prepared
+
+| Change | Effect |
+| --- | --- |
+| Reviewed first | Admin → Users has a "Reviewed first" count. While a user sends for real, each of their first N applications (30 when real sending is switched on) waits for their approval; the page shows approved so far / N |
+| Runbook | `docs/phase4-first-real-submissions.md`: the steps, the daily routine, the exit test and the stop rule |
+
+The submissions themselves need the owner's account, a deployment of `v2-build`, and the owner's approvals; they
+have not started.
+
 Not yet built from the roadmap: the labelled 200-posting regression set (needs the owner's "would apply" labels), per-provider spend column and key screens, the new interface (5), background scale (6), supply work (7), Gmail sign-in (8), CV tailoring client (9).
 
-270 backend tests pass (with the migration database from `scripts/init-db.sql`); lint passes.
+271 backend tests pass (with the migration database from `scripts/init-db.sql`); lint passes.
 
 Not yet done in phase 0: a physically separate live deployment (own Cloud Run service, database and Gmail
 connection) for the owner's real job hunt, so the test site is only ever a test site. That is infrastructure, needs

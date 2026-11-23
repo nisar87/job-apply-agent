@@ -447,3 +447,28 @@ def test_the_daily_limit_starts_at_10_and_rises_to_25_after_a_good_week(client, 
             a.status = "unconfirmed"
         s.flush()
         assert rules.automatic_daily_limit(s, w.user_id, NOW) == 10          # under 90% confirmed
+
+
+def test_the_first_real_submissions_each_wait_for_the_owners_approval(client, llm):
+    from app.services import live
+
+    w = form_app(client, llm, approval_mode="full_auto")
+    with w.session() as s:
+        user, campaign = s.get(User, w.user_id), s.get(Campaign, w.campaign_id)
+        app = s.get(Application, w.app_id)
+        posting = s.get(Posting, app.posting_id)
+        app.check_results = {"passed": True}
+        live.set_real(w.user_id, True)
+        live.set_proof_review(w.user_id, 30)
+        try:
+            with pytest.raises(rules.RuleViolation, match="first 30"):
+                rules.check_send(s, app, campaign, forms.get_config(campaign), user, posting, NOW)
+            app.approved_at = NOW                                   # the owner looked at it and agreed
+            try:
+                rules.check_send(s, app, campaign, forms.get_config(campaign), user, posting, NOW)
+            except rules.RuleViolation as e:
+                assert e.code != "needs_approval" or "first" not in e.message
+            assert live.reviewed_so_far(s, w.user_id) == 0
+        finally:
+            live.set_real(w.user_id, False)
+            live.set_proof_review(w.user_id, 0)

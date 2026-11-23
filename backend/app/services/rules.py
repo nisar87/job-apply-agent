@@ -105,6 +105,13 @@ def check_send(
         # The recipient is never free text: it must be the validated address stored on the posting.
         if (app.recipient or "").lower() != posting.contact_email.lower():
             raise RuleViolation("recipient_mismatch", "The recipient does not match the posting's contact address")
+    from app.services import live
+
+    proof = live.proof_review(user.id)
+    if proof and app.approved_at is None and live.sends_for_real(user.id) and live.reviewed_so_far(session, user.id) < proof:
+        # First real submissions: each one is looked at by the owner before it goes (roadmap phase 4).
+        raise RuleViolation("needs_approval", f"One of your first {proof} real applications: waiting for your approval",
+                            retry_later=True)
     if not (app.check_results or {}).get("passed"):
         raise RuleViolation("checks_failed", "The draft has not passed its checks")
     if app.score is not None and app.score < config.match_threshold and not app.override_threshold:

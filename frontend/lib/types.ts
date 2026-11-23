@@ -19,7 +19,7 @@ export type Campaign = {
 };
 
 export type CampaignConfig = {
-  keywords: string[]; countries: string[]; remote_outside_countries: boolean; locations: string[]; work_modes: string[]; contract_types: string[];
+  keywords: string[]; countries: string[]; priority_countries?: string[]; remote_outside_countries: boolean; locations: string[]; work_modes: string[]; contract_types: string[];
   seniority: string[]; languages: string[]; salary_min: number | null; max_posting_age_days: number | null;
   exclude_agencies: boolean; auto_fill_forms?: boolean;sources: string[]; unknown_policy: Record<string, string>; daily_quota: number;
   send_window: { start: string; end: string; days: number[] }; company_cooldown_days: number;

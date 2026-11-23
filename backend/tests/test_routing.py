@@ -126,24 +126,36 @@ def test_a_stalled_claude_call_is_given_up_at_once_so_gemini_can_answer():
     assert len(calls) == 1             # no repeated waits
 
 
-def test_a_person_with_their_own_gemini_key_still_gets_claude_for_strong_tasks(client, llm, monkeypatch):
+def test_the_keys_a_person_gives_decide_the_models(client, llm, monkeypatch):
+    """Both: routed. Only one: that one. None: the service's pair. The one rule."""
+    import app.llm as llm_pkg
     from app.config import get_settings
     from app.llm import access
+    from app.llm.claude import ClaudeClient
+    from app.llm.gemini import GeminiClient
     from app.llm.routing import RoutedLLM
+    from app.models import User
     from tests.helpers import make_world
-    monkeypatch.setattr(get_settings(), "anthropic_api_key", "k")
-    monkeypatch.setattr(get_settings(), "gemini_api_key", "g")
     monkeypatch.setattr(get_settings(), "llm_provider", "gemini")
-    import app.llm as llm_pkg
+    monkeypatch.setattr(get_settings(), "gemini_api_key", "g-platform")
+    monkeypatch.setattr(get_settings(), "anthropic_api_key", "c-platform")
     w = make_world(client, llm)
     monkeypatch.setattr(llm_pkg, "_override", None)      # the real client choice, not the test double
     with w.session() as s:
-        from app.models import User
         user = s.get(User, w.user_id)
-        access.set_own_key(user, "AIza-own-key")
-        user.platform_key_allowed = True
-        s.flush()
-        assert isinstance(access.client_for(s, w.user_id), RoutedLLM)
-        user.platform_key_allowed = False
-        s.flush()
-        assert not isinstance(access.client_for(s, w.user_id), RoutedLLM)
+
+        def pick(gemini="", claude="", allowed=True):
+            access.set_own_key(user, gemini)
+            access.set_own_claude_key(user, claude)
+            user.platform_key_allowed = allowed
+            s.flush()
+            return access.client_for(s, w.user_id)
+        assert isinstance(pick("AIza-own", "sk-ant-own"), RoutedLLM)
+        assert isinstance(pick("AIza-own", ""), GeminiClient)
+        only_claude = pick("", "sk-ant-own")
+        assert isinstance(only_claude, RoutedLLM) and only_claude.gemini is not None      # the service's Gemini for embeddings
+        assert isinstance(pick("", "", True), RoutedLLM)                                  # the service's pair
+        assert isinstance(only_claude.claude, ClaudeClient)
+        import pytest
+        with pytest.raises(access.NoModelKey):
+            pick("", "", False)

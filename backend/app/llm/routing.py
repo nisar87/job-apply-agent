@@ -27,8 +27,8 @@ class RoutedLLM:
         return self.claude is not None and self._clock() >= self._claude_paused_until
 
     def _order(self, tier: str) -> list[tuple[str, object]]:
-        pair = [("gemini", self.gemini)]
-        if self._claude_ready():
+        pair = [("gemini", self.gemini)] if self.gemini is not None else []
+        if self.claude is not None and (self._claude_ready() or not pair):
             pair.insert(0, ("claude", self.claude)) if tier == "strong" else pair.append(("claude", self.claude))
         return pair
 
@@ -64,11 +64,16 @@ class RoutedLLM:
                             tier: str = "strong", task: str = "") -> LLMResult:
         return self._run(tier, lambda c: c.generate_with_tools(messages, tools, system=system, tier=tier, task=task))
 
+    def _need_gemini(self):
+        if self.gemini is None:
+            raise SpendCapExceeded("Searching and comparing jobs needs a Gemini key: add one in Settings, or ask for the service's key")
+        return self.gemini
+
     def search_web(self, prompt: str, *, tier: str = "fast", task: str = "") -> LLMResult:
-        return self.gemini.search_web(prompt, tier=tier, task=task)
+        return self._need_gemini().search_web(prompt, tier=tier, task=task)
 
     def embed(self, texts: list[str]) -> list[list[float]]:
-        return self.gemini.embed(texts)
+        return self._need_gemini().embed(texts)
 
 
 def with_claude(gemini_client):

@@ -72,6 +72,24 @@ def set_own_key(user: User, key: str) -> None:
     user.llm_api_key_enc = encrypt_secret(key.strip()) if key.strip() else ""
 
 
+def own_claude_key(user: User) -> str:
+    if not user.claude_api_key_enc:
+        return ""
+    try:
+        return decrypt_secret(user.claude_api_key_enc)
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def set_own_claude_key(user: User, key: str) -> None:
+    user.claude_api_key_enc = encrypt_secret(key.strip()) if key.strip() else ""
+
+
+def claude_key_hint(user: User) -> str:
+    key = own_claude_key(user)
+    return f"…{key[-4:]}" if key else ""
+
+
 def key_hint(user: User) -> str:
     key = own_key(user)
     return f"…{key[-4:]}" if key else ""
@@ -81,7 +99,7 @@ def source_for(user: User, settings: dict | None = None) -> str:
     """'own', 'platform' or 'none': the key this user's work runs on right now."""
     settings = settings or platform_settings()
     policy = settings["key_policy"]
-    if policy in ("own", "either") and own_key(user):
+    if policy in ("own", "either") and (own_key(user) or own_claude_key(user)):
         return "own"
     if policy in ("platform", "either") and user.platform_key_allowed and settings["platform_key_configured"]:
         return "platform"
@@ -98,12 +116,16 @@ def cap_for(user: User, settings: dict | None = None) -> float:
 
 def why_no_key(settings: dict) -> str:
     if settings["key_policy"] == "own":
-        return "no Gemini API key: add your own key on the Account page"
-    return "no Gemini API key: add your own key on the Account page, or ask the admin for access"
+        return "no key: add a Claude or Gemini key in Settings"
+    return "no key: add a Claude or Gemini key in Settings, or ask the admin for access"
 
 
 def client_for(session: Session, user_id: uuid.UUID) -> LLMClient:
-    """The model client for this user's work. Raises NoModelKey when no key may be used."""
+    """The model client for this user's work. Raises NoModelKey when no key may be used.
+
+    The rule is simple. Both keys given: Claude does the strong tasks, Gemini the quick ones, each covering for the
+    other. Only one given: that one does everything. None given: the service's keys, if the admin allows this person.
+    Searching and comparing (embeddings, web search) need Gemini, so a Claude-only person uses the service's Gemini for those."""
     from app.llm import _override, get_llm
 
     if _override is not None:  # tests
@@ -111,18 +133,28 @@ def client_for(session: Session, user_id: uuid.UUID) -> LLMClient:
     user = session.get(User, user_id)
     settings = platform_settings()
     source = source_for(user, settings) if user else "none"
-    if source == "own":
-        if get_settings().llm_provider == "fake":
-            return get_llm()
-        from app.llm.gemini import GeminiClient
-        from app.llm.routing import with_claude
-
-        # The person's own Gemini key serves the quick tasks. The strong ones still go to Claude on the platform's key
-        # when the admin allows this person the platform's models and a Claude key is configured.
-        gemini = GeminiClient(api_key=own_key(user))
-        return with_claude(gemini) if user.platform_key_allowed else gemini
-    if source == "platform":
+    if source == "none":
+        raise NoModelKey(why_no_key(settings))
+    if get_settings().llm_provider == "fake":
         return get_llm()
+    from app.llm.claude import ClaudeClient
+    from app.llm.gemini import GeminiClient
+    from app.llm.routing import RoutedLLM
+
+    s = get_settings()
+    allowed = bool(user.platform_key_allowed) and settings["key_policy"] != "own"
+    if source == "platform":                          # nothing of their own: the service's pair
+        return get_llm()
+    gemini_key, claude_key = own_key(user), own_claude_key(user)     # what they gave is what runs, nothing else
+    gemini = GeminiClient(api_key=gemini_key) if gemini_key else None
+    claude = ClaudeClient(api_key=claude_key) if claude_key else None
+    if gemini and claude:
+        return RoutedLLM(gemini, claude)
+    if gemini:
+        return gemini
+    if claude:
+        helper = GeminiClient(api_key=s.gemini_api_key) if (s.gemini_api_key and allowed) else None
+        return RoutedLLM(helper, claude)
     raise NoModelKey(why_no_key(settings))
 
 

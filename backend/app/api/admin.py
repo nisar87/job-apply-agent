@@ -41,6 +41,8 @@ def key_status(session: Session, user: User) -> dict:
         "source": source,                       # own | platform | none
         "hint": access.key_hint(user),          # last four characters of the user's own key
         "has_own_key": bool(access.own_key(user)),
+        "claude_hint": access.claude_key_hint(user),
+        "has_claude_key": bool(access.own_claude_key(user)),
         "own_key_cap_usd": user.own_key_cap_usd,
         "platform_key_allowed": user.platform_key_allowed and settings["key_policy"] != "own",
         "cap_usd": access.cap_for(user, settings),
@@ -51,6 +53,7 @@ def key_status(session: Session, user: User) -> dict:
 
 class KeyIn(BaseModel):
     key: str | None = Field(default=None, max_length=200)
+    claude_key: str | None = Field(default=None, max_length=300)
     own_key_cap_usd: float | None = Field(default=None, ge=0, le=100)
     clear_cap: bool = False
 
@@ -69,6 +72,20 @@ def _check_key(key: str) -> None:
         raise HTTPException(400, "Google did not accept this key. Check it in Google AI Studio and try again.") from exc
 
 
+def _check_claude_key(key: str) -> None:
+    """One tiny request on the person's own Claude key."""
+    if not re.fullmatch(r"[A-Za-z0-9_\-.]{20,300}", key):
+        raise HTTPException(400, "That does not look like a Claude API key")
+    if get_settings().llm_provider == "fake":
+        return
+    from app.llm.claude import ClaudeClient
+
+    try:
+        ClaudeClient(api_key=key).generate("Reply with the single word: ok", tier="fast", task="key_check")
+    except Exception as exc:  # noqa: BLE001 - the provider's message can echo the key, so it is not shown
+        raise HTTPException(400, "Claude did not accept this key. Check the key and your credit at console.anthropic.com.") from exc
+
+
 @router.get("/account/model-key")
 def get_model_key(user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
     return key_status(session, session.get(User, user_id))
@@ -82,6 +99,11 @@ def put_model_key(body: KeyIn, user_id: uuid.UUID = Depends(current_user_id), se
         _check_key(key)
         access.set_own_key(user, key)
         audit.record(session, user_id=user_id, actor="user", tool="set_model_key", result={"hint": f"…{key[-4:]}"})
+    if body.claude_key is not None and body.claude_key.strip():
+        ckey = body.claude_key.strip()
+        _check_claude_key(ckey)
+        access.set_own_claude_key(user, ckey)
+        audit.record(session, user_id=user_id, actor="user", tool="set_claude_key", result={"hint": f"…{ckey[-4:]}"})
     if body.clear_cap:
         user.own_key_cap_usd = None
     elif body.own_key_cap_usd is not None:
@@ -91,10 +113,13 @@ def put_model_key(body: KeyIn, user_id: uuid.UUID = Depends(current_user_id), se
 
 
 @router.delete("/account/model-key")
-def delete_model_key(user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
+def delete_model_key(which: str = "gemini", user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
     user = session.get(User, user_id)
-    access.set_own_key(user, "")
-    audit.record(session, user_id=user_id, actor="user", tool="remove_model_key")
+    if which == "claude":
+        access.set_own_claude_key(user, "")
+    else:
+        access.set_own_key(user, "")
+    audit.record(session, user_id=user_id, actor="user", tool="remove_model_key", result={"which": which})
     session.flush()
     return key_status(session, user)
 

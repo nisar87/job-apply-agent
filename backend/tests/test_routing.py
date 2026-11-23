@@ -106,3 +106,21 @@ def test_a_history_from_gemini_is_passed_on_as_words():
     c.generate_with_tools(messages, [])
     sent = c._client.messages.sent[0]["messages"]
     assert sent[1] == {"role": "assistant", "content": "I searched"} and sent[2]["content"][0]["type"] == "text"
+
+
+def test_a_stalled_claude_call_is_given_up_at_once_so_gemini_can_answer():
+    import anthropic
+    import httpx
+    import pytest
+
+    from app.llm.claude import ClaudeClient, ClaudeUnavailable
+    c = ClaudeClient(api_key="k")
+    calls = []
+
+    def stalled(**kw):
+        calls.append(1)
+        raise anthropic.APITimeoutError(request=httpx.Request("POST", "https://api.anthropic.com"))
+    c._client.messages.create = stalled
+    with pytest.raises(ClaudeUnavailable):
+        c.generate("hello")
+    assert len(calls) == 1             # no repeated waits

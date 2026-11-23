@@ -23,7 +23,7 @@ class GeminiClient:
         key = api_key or s.gemini_api_key
         if not key:
             raise RuntimeError("GEMINI_API_KEY is not set")
-        self._client = genai.Client(api_key=key)
+        self._client = genai.Client(api_key=key, http_options=types.HttpOptions(timeout=120_000))   # a stalled call fails after 2 minutes
         self._models = {"fast": s.gemini_model_fast, "strong": s.gemini_model_strong}
         self._embed_model = s.gemini_model_embed
 

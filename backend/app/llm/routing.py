@@ -14,6 +14,7 @@ from app.llm.claude import ClaudeClient, ClaudeUnavailable
 
 log = logging.getLogger(__name__)
 CLAUDE_PAUSE_SECONDS = 300
+_ANNOUNCED: set[str] = set()
 
 
 class RoutedLLM:
@@ -37,6 +38,9 @@ class RoutedLLM:
             try:
                 result = call(client)
                 self.last_provider = name
+                if name not in _ANNOUNCED:          # once per provider and process, so the log shows which model really answers
+                    _ANNOUNCED.add(name)
+                    log.warning("first answer from %s (model %s)", name, getattr(result, "model", ""))
                 return result
             except SpendCapExceeded:
                 raise

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import JobGmail from "@/components/JobGmail";
 import MainEmail from "@/components/MainEmail";
 import Shell from "@/components/Shell";
@@ -12,99 +12,43 @@ import type { CV, CampaignConfig } from "@/lib/types";
 type Status = { has_cv: boolean; mail_connected: boolean; escalation_email: string | null };
 type Reply = { needs?: string[]; reply: string; config: CampaignConfig; campaign_name: string; preferences: string[]; ready: boolean };
 
-const STEP_TITLES = ["Your CV", "Your Gmail", "Start"];
-
+// One box. Say what you want; the agent reads the CV once, plans the search and starts.
 export default function Setup() {
   const router = useRouter();
   const status = useLoad<Status>("/api/setup/status");
   const cvs = useLoad<CV[]>("/api/cvs");
-  const [step, setStep] = useState(0);
-  const [started, setStarted] = useState(false);
+  const [text, setText] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [answer, setAnswer] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [wish, setWish] = useState("");
-  const [plan, setPlan] = useState<Reply | null>(null);
-  const [about, setAbout] = useState({ salary: "", start: "", phone: "" });
-  const [tryFirst, setTryFirst] = useState(true);
-  const facts = useLoad<Record<string, unknown>>("/api/fact-sheet");
 
-  // Resume where the person left off: the first step that is not done yet.
-  useEffect(() => {
-    if (started || !status.data || !cvs.data) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setStarted(true);
-    setStep(!status.data.has_cv ? 0 : !status.data.mail_connected || !status.data.escalation_email ? 1 : 2);
-  }, [status.data, cvs.data, started]);
-  useEffect(() => {
-    const f = facts.data;
-    if (!f) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setAbout((a) => ({
-      salary: a.salary || (f.salary_expectation ? `${f.salary_expectation}${f.salary_currency ? " " + f.salary_currency : ""}` : ""),
-      start: a.start || String(f.earliest_start || f.notice_period || ""), phone: a.phone || String(f.phone || ""),
-    }));
-  }, [facts.data]);
+  const hasCv = !!(cvs.data || []).some((c) => c.active) || !!file;
+  const mailReady = !!status.data?.mail_connected && !!status.data?.escalation_email;
 
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (step === 0 && cvs.data?.some((c) => c.active)) setStep(1);
-  }, [step, cvs.data]);
-
-  // Nothing to type: the agent plans the search from the CV. The box only changes that plan.
-  useEffect(() => {
-    if (step !== 2 || plan || busy || wish.trim()) return;
-    void readWish(undefined, FROM_CV);
-  }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const cv = (cvs.data || []).find((c) => c.active);
-
-  async function upload(e: React.FormEvent<HTMLFormElement>) {
+  async function go(e: React.FormEvent) {
     e.preventDefault();
-    const formEl = e.currentTarget;
-    const form = new FormData(formEl);
-    form.set("label", "My CV");
     setBusy(true);
     setError("");
+    setAnswer("");
     try {
-      await api("/api/cvs", { method: "POST", body: form });
-      cvs.reload();
-      status.reload();
-    } catch (err) {
-      setError(`I could not read that file: ${errorText(err)} Please try another file (PDF, DOCX or TXT, up to 5 MB).`);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const FROM_CV = "Find jobs that fit my CV and level. Remote or with relocation, anywhere in the world.";
-  async function readWish(e?: React.FormEvent, text?: string) {
-    e?.preventDefault();
-    setBusy(true);
-    setError("");
-    try {
-      const out = await api<Reply>("/api/setup/turn", { method: "POST", json: { history: [{ role: "user", text: text ?? wish }], draft: text ? undefined : plan?.config } });
-      setPlan(out);
-    } catch (err) {
-      setError(errorText(err));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function start() {
-    if (!plan) return;
-    setBusy(true);
-    setError("");
-    try {
-      const current = await api<Record<string, unknown>>("/api/fact-sheet");
-      await api("/api/fact-sheet", { method: "PUT", json: {
-        ...current,
-        ...(about.salary.trim() ? { salary_expectation: about.salary.trim() } : {}),
-        ...(about.start.trim() ? { earliest_start: about.start.trim() } : {}),
-        ...(about.phone.trim() ? { phone: about.phone.trim() } : {}),
-      } });
+      if (file) {
+        const form = new FormData();
+        form.set("file", file);
+        form.set("label", "My CV");
+        await api("/api/cvs", { method: "POST", body: form });
+        setFile(null);
+        cvs.reload();
+        status.reload();
+      }
+      const wish = text.trim() || "Find jobs that fit my CV and level. Remote or with relocation, anywhere in the world.";
+      const plan = await api<Reply>("/api/setup/turn", { method: "POST", json: { history: [{ role: "user", text: wish }] } });
+      if (plan.needs?.length) {
+        setAnswer(plan.reply);
+        return;
+      }
       const config = { ...plan.config, daily_quota: Math.min(plan.config.daily_quota || 10, 10) };
-      await api("/api/campaigns", { method: "POST", json: { name: plan.campaign_name, config, preferences: plan.preferences, state: tryFirst ? "dry_run" : "active" } });
+      await api("/api/campaigns", { method: "POST", json: { name: plan.campaign_name, config, preferences: plan.preferences, state: "active" } });
       router.push("/");
     } catch (err) {
       setError(errorText(err));
@@ -114,79 +58,29 @@ export default function Setup() {
   }
 
   return (
-    <Shell title="Set up your agent">
-      <p className="text-sm text-slate" aria-live="polite">Step {step + 1} of 3 · {STEP_TITLES[step]}</p>
+    <Shell title="What should I do for you?">
       <ErrorNote message={error} />
-
-      {step === 0 && (
-        <section className="mt-4 max-w-xl">
-          <h2 className="text-xl">Your CV</h2>
-          {!cv ? (
-            <form onSubmit={upload} className="mt-3 border border-dashed border-rule p-6">
-              <label className="text-sm">Choose your CV (PDF, DOCX or TXT, up to 5 MB)
-                <input className="field mt-2" type="file" name="file" accept=".pdf,.docx,.txt" required />
-              </label>
-              <button className="btn mt-4" disabled={busy}>{busy ? "Reading your CV…" : "Read my CV"}</button>
-            </form>
-          ) : (
-            <p className="mt-3 text-sm text-slate">CV read.</p>
-          )}
-        </section>
-      )}
-
-      {step === 1 && (
-        <section className="mt-4 max-w-xl">
-          <h2 className="text-xl">Your Gmail</h2>
-          <p className="mt-1 text-sm text-slate">Applications go out from this address and replies come back to it. Use an address kept for job hunting.</p>
-          <JobGmail onConnected={status.reload} />
-          <div className="mt-6"><MainEmail onSaved={status.reload} /></div>
-          <div className="mt-6 flex gap-2">
-            <button className="btn btn-quiet" onClick={() => setStep(0)}>Back</button>
-            <button className="btn" disabled={!status.data?.mail_connected || !status.data?.escalation_email}
-              onClick={() => setStep(2)}>Continue</button>
-            {status.data?.mail_connected && !status.data?.escalation_email && <span className="self-center text-sm text-slate">Add your main email above to continue.</span>}
-          </div>
-        </section>
-      )}
-
-      {step === 2 && (
-        <section className="mt-4 max-w-xl">
-          <h2 className="text-xl">Your plan</h2>
-          <form onSubmit={(e) => readWish(e)}>
-            <label className="text-sm">I planned the search from your CV (see below). Want something different? Say it in plain words: where, how many a day, what to avoid. Otherwise just continue.
-              <textarea className="field mt-1 min-h-28" value={wish} onChange={(e) => setWish(e.target.value)} required
-                placeholder="Remote or relocation jobs in Europe, Canada and the US, Austria first, not in Pakistan, 5 to 8 a day." />
+      <form onSubmit={go} className="mt-4 max-w-2xl">
+        <label className="sr-only" htmlFor="wish">Describe what you want</label>
+        <textarea id="wish" className="field min-h-56 w-full text-base" value={text} onChange={(e) => setText(e.target.value)}
+          placeholder="Describe what you want, like you would tell a person. For example: remote or relocation jobs in all of Europe, Canada and the US, Austria first, never Pakistan, 5 to 8 a day, nothing older than 20 days, same company again only after 15 days, read my replies." />
+        {answer && <p className="mt-3 border-l-4 border-rule bg-sheet px-3 py-2 text-sm">{answer}</p>}
+        <div className="mt-3 flex flex-wrap items-center gap-4">
+          {!(cvs.data || []).some((c) => c.active) && (
+            <label className="text-sm">Attach your CV (PDF, DOCX or TXT)
+              <input className="field mt-1" type="file" accept=".pdf,.docx,.txt" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
             </label>
-            <button className="btn btn-quiet mt-2" disabled={busy || !wish.trim()}>{busy ? "Reading…" : plan ? "Change the plan" : "Read this"}</button>
-          </form>
-          {plan && <p className="mt-3 border-l-4 border-rule bg-sheet px-3 py-2 text-sm">{plan.reply}</p>}
-          {plan?.needs?.includes("where") && <p className="mt-3 text-sm text-problem">Add where to look to your text, then press &quot;Change the plan&quot;.</p>}
-          <details className="mt-6 max-w-xl">
-            <summary className="cursor-pointer text-sm font-semibold">About you (optional: employers ask for these)</summary>
-            <div className="mt-2 grid gap-3 sm:grid-cols-3">
-              <label className="text-sm">Expected salary a year
-                <input className="field mt-1" value={about.salary} onChange={(e) => setAbout({ ...about, salary: e.target.value })} placeholder="60000 EUR" />
-              </label>
-              <label className="text-sm">Earliest start or notice
-                <input className="field mt-1" value={about.start} onChange={(e) => setAbout({ ...about, start: e.target.value })} placeholder="2 weeks" />
-              </label>
-              <label className="text-sm">Phone (optional)
-                <input className="field mt-1" value={about.phone} onChange={(e) => setAbout({ ...about, phone: e.target.value })} placeholder="+43…" />
-              </label>
-            </div>
-            <p className="mt-1 text-xs text-slate">Leave any empty: the agent never makes these up. It asks you only if an employer needs one.</p>
-          </details>
-          <label className="mt-5 flex items-start gap-2 text-sm">
-            <input type="checkbox" className="mt-1" checked={tryFirst} onChange={(e) => setTryFirst(e.target.checked)} />
-            <span>Try it first: prepare everything, send nothing. Switch off in Settings when happy.</span>
-          </label>
-          <div className="mt-6 flex gap-2">
-            <button className="btn btn-quiet" onClick={() => setStep(1)}>Back</button>
-            <button className="btn" disabled={busy || !plan || !!plan.needs?.length} onClick={start}>{busy ? "Starting…" : "Start my agent"}</button>
+          )}
+          <button className="btn ml-auto" disabled={busy || !hasCv || !mailReady}>{busy ? "Working…" : "Start"}</button>
+        </div>
+        {!mailReady && status.data && (
+          <div className="mt-6 border-t border-rule pt-4">
+            <p className="text-sm text-slate">One thing first: connect the Gmail the agent applies from, and your main email for reports.</p>
+            {!status.data.mail_connected && <JobGmail onConnected={status.reload} />}
+            <div className="mt-4"><MainEmail onSaved={status.reload} /></div>
           </div>
-        </section>
-      )}
-
+        )}
+      </form>
     </Shell>
   );
 }

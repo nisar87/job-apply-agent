@@ -28,6 +28,8 @@ ONBOARDING_SCHEMA = {
                 "keywords": {"type": "array", "items": {"type": "string"}},
                 "countries": {"type": "array", "items": {"type": "string"},
                               "description": "Countries to apply within, ISO alpha-2, lower case"},
+                "priority_countries": {"type": "array", "items": {"type": "string"},
+                                       "description": "Countries the user wants most; applied to first. Does not limit the search"},
                 "remote_outside_countries": {
                     "type": "boolean",
                     "description": "false when the user wants only jobs based in the named countries, even remote "
@@ -85,6 +87,17 @@ Be complete: every country, work mode, limit, time window, cooldown and exclusio
 config, each with its quote. Countries are ISO codes: Germany is de, Austria is at, Switzerland is ch, the United Kingdom is gb. \
 "Only in Germany, even remote" means remote_outside_countries false; "remote from anywhere" means true.
 
+Places: "every country", "worldwide", "anywhere" or "all countries except X" mean NO country limit: leave countries out \
+entirely, never list the countries one by one. A country the user calls most important, first or preferred goes in \
+priority_countries and never in countries. "Europe" may be given as a country entry. A country to avoid is not a \
+country to search: do not put it in countries (the product skips the user's own country by itself).
+Work mode: "remote or relocation", "remote or visa", "remote or anywhere that sponsors" are NOT a restriction: leave \
+work_modes out so remote and relocation jobs both qualify. Put "remote" into work_modes only when the user wants \
+remote jobs and nothing else.
+Numbers: "at least 5 to 8 a day" is daily_quota 8; "at most N a day" is N. Quality words such as "quality jobs" are \
+not a setting. Do not ask a question when the answer is already in the message; ask only when two instructions \
+truly contradict.
+
 Reply: if an instruction is vague or contradicts another, ask exactly one short question. Otherwise confirm \
 what you understood in two or three sentences. Do not say anything about what is still missing on the account \
 (CV, mailbox, and so on): the product adds that itself. Never promise something the product cannot do: it \
@@ -126,7 +139,7 @@ def stated_settings(patch: dict, evidence: list, history: list[dict]) -> tuple[d
 
 
 _LABELS = {
-    "keywords": "roles", "countries": "countries", "remote_outside_countries": "remote jobs from other countries",
+    "keywords": "roles", "countries": "countries", "priority_countries": "countries applied to first", "remote_outside_countries": "remote jobs from other countries",
     "locations": "locations", "work_modes": "work mode",
     "contract_types": "contract type", "seniority": "seniority", "languages": "posting languages",
     "salary_min": "minimum yearly salary", "max_posting_age_days": "posted within (days)",

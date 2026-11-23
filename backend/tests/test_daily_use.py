@@ -121,3 +121,10 @@ def test_a_run_that_leaves_drafts_tells_the_user(client, llm):
         notes = s.execute(select(Notification).where(Notification.kind == "drafts_ready")).scalars().all()
     assert len(notes) == 1 and notes[0].link == "/drafts" and "ready for your approval" in notes[0].title
     assert "Backend Engineer" in notes[0].body
+
+
+def test_nothing_limits_the_search_to_austria_unless_the_person_asked():
+    from app.services.campaigns import CampaignConfig
+    assert CampaignConfig().countries == []
+    cfg = CampaignConfig(priority_countries=["Austria"], countries=[])
+    assert cfg.priority_countries == ["at"] and cfg.countries == []

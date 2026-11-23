@@ -35,7 +35,7 @@ export default function Sources() {
   const boards = (data || []).filter((s) => s.kind === "board");
   const companies = (data || []).filter((s) => s.kind === "company");
   return (
-    <Shell title="Where we look">
+    <Shell title="Job sources" intro="The job boards and company sites the agent searches.">
       <p className="max-w-prose text-sm text-slate">
         Every place the agent searches. Job boards are checked for each search; company career pages are learned
         automatically from the jobs it reads and checked twice a day. Jobs are always applied to on the original site.
@@ -56,7 +56,7 @@ export default function Sources() {
           {boards.map((s) => {
             const st = status(s);
             return (
-              <li key={s.provider} className="border border-rule bg-sheet p-3 text-sm">
+              <li key={s.provider} className="card p-3 text-sm">
                 <div className="flex items-center justify-between gap-2">
                   <a className="font-semibold underline" href={s.url} target="_blank" rel="noreferrer">{BOARD_NAMES[s.provider] || s.provider}</a>
                   <span className={`text-xs ${st.tone}`}>{st.text}</span>
@@ -77,7 +77,7 @@ export default function Sources() {
         {pool?.company_boards && pool.company_boards > companies.length ? ` Showing the ${companies.length} with the most matching jobs.` : ""}
       </p>
       {data && companies.length === 0 ? <Empty>None learned yet. They appear as the agent reads job ads that link to a company&apos;s own careers page.</Empty> : (
-        <ul className="mt-3 divide-y divide-rule border border-rule bg-sheet text-sm">
+        <ul className="mt-3 divide-y divide-rule card text-sm">
           {companies.map((s) => {
             const st = status(s);
             return (

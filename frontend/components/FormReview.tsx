@@ -43,7 +43,7 @@ export default function FormReview({ id, status, onChange }: { id: string; statu
 
   if (status === "manual_apply") {
     return (
-      <section className="mt-6 border border-rule bg-sheet p-4 text-sm">
+      <section className="mt-6 card p-4 text-sm">
         <h2 className="text-xl">This employer uses a web form</h2>
         <p className="mt-1 max-w-prose text-slate">The agent can fill it in from your CV and fact sheet, then show you the result. Nothing is submitted until you approve.</p>
         <ErrorNote message={error} />
@@ -54,7 +54,7 @@ export default function FormReview({ id, status, onChange }: { id: string; statu
   if (!review.data) return null;
   const r = review.data;
   return (
-    <section className="mt-6 border border-rule bg-sheet p-4 text-sm">
+    <section className="mt-6 card p-4 text-sm">
       <h2 className="text-xl">{status === "sent" ? "Form as submitted" : "Check the filled form"}</h2>
       <ErrorNote message={error} />
       <dl className="mt-3 grid gap-x-6 gap-y-1 sm:grid-cols-2">

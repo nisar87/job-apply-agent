@@ -19,7 +19,7 @@ const NAV: { group: string; items: { href: string; label: string }[] }[] = [
   ] },
 ];
 
-export default function Shell({ title, children, actions }: { title: string; children: React.ReactNode; actions?: React.ReactNode }) {
+export default function Shell({ title, intro, children, actions }: { title: string; intro?: string; children: React.ReactNode; actions?: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [me, setMe] = useState<Me | null>(null);
@@ -87,26 +87,29 @@ export default function Shell({ title, children, actions }: { title: string; chi
       </nav>
       <main className="min-w-0 flex-1 px-4 py-6 md:px-8 md:py-8">
         {me && me.environment !== "production" && (
-          <p className={`mb-4 border-l-4 bg-sheet px-3 py-2 text-sm ${me.sends_for_real ? "border-problem" : "border-rule"}`} role="status">
+          <p className={`mb-4 rounded-lg border bg-sheet px-3 py-2 text-sm ${me.sends_for_real ? "border-problem" : "border-rule"}`} role="status">
             {me.sends_for_real
               ? "Test site, but this account is switched to real sending: its applications reach employers."
               : "Test site: nothing you send here reaches an employer. Applications go to a test inbox."}
           </p>
         )}
         {mailBroken && (
-          <p className="mb-4 border-l-4 border-problem bg-sheet px-3 py-2 text-sm" role="alert">
+          <p className="mb-4 rounded-lg border border-problem bg-sheet px-3 py-2 text-sm" role="alert">
             Gmail stopped accepting the agent&apos;s sign-in, so nothing is being sent or read.{" "}
             <Link className="font-semibold underline" href="/account">Reconnect Gmail</Link> and your searches resume by themselves.
           </p>
         )}
         {noKey && (
-          <p className="mb-4 border-l-4 border-problem bg-sheet px-3 py-2 text-sm" role="alert">
+          <p className="mb-4 rounded-lg border border-problem bg-sheet px-3 py-2 text-sm" role="alert">
             The agent is stopped: {noKey.replace(/^no Gemini API key: /, "there is no Gemini API key to run on. ")}{" "}
             <Link className="font-semibold underline" href="/account">Add your key</Link>
           </p>
         )}
         <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
-          <h1 className="text-3xl">{title}</h1>
+          <div>
+            <h1>{title}</h1>
+            {intro && <p className="mt-1 max-w-xl text-sm text-slate">{intro}</p>}
+          </div>
           {actions}
         </div>
         {children}

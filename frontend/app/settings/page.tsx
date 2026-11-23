@@ -53,7 +53,7 @@ function WhatYouWant() {
       <ErrorNote message={error || searches.error} />
       {list.length === 0 && <p className="text-sm">No job search yet. <Link className="underline" href="/setup">Set up your agent</Link></p>}
       {list.map((c) => (
-        <div key={c.id} className="mb-4 border border-rule bg-sheet p-4 text-sm">
+        <div key={c.id} className="mb-4 card p-4 text-sm">
           <p className="font-semibold">{c.name}</p>
           <p className="text-slate">Looking for {c.config.keywords.join(", ") || "anything that fits"}</p>
           <p className="text-slate">Where: {c.config.countries.length ? c.config.countries.map(countryName).join(", ") : "anywhere"}
@@ -83,7 +83,7 @@ function WhatYouWant() {
 
 export default function Settings() {
   return (
-    <Shell title="Settings">
+    <Shell title="Settings" intro="Pause or resume the agent, reports and limits.">
       <p className="mb-2 max-w-prose text-sm text-slate">Everything has a working default. You only need this page to change something.</p>
       <Section id="search" title="What you want" summary="Your job search, how picky, how many a day" open><WhatYouWant /></Section>
       <Section id="cv" title="Your CV and facts" summary="What the agent knows about you">

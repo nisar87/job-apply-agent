@@ -56,7 +56,7 @@ export default function JobGmail({ onConnected }: { onConnected?: () => void } =
       <ErrorNote message={error} />
       <ul className="mt-3 space-y-2 text-sm">
         {accounts.map((a) => (
-          <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 border border-rule bg-sheet p-3">
+          <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 card p-3">
             <span>{a.address} <span className={`postmark ml-2 ${a.status === "connected" ? "text-sent" : "text-problem"}`}>
               {a.status === "connected" ? "Connected" : "Needs a new app password"}</span></span>
             <button className="btn btn-quiet" onClick={() => disconnect(a.id)}>Disconnect</button>

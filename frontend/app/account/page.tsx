@@ -46,7 +46,7 @@ export default function AccountPage() {
   }
 
   return (
-    <Shell title="Account">
+    <Shell title="Account and keys" intro="Your sign-in, Gmail and the Claude and Gemini keys.">
       <ErrorNote message={error || me.error} />
       <JobGmail />
 

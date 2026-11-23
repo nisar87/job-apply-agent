@@ -33,7 +33,7 @@ function CvRow({ cv, onChange }: { cv: CV; onChange: () => void }) {
     }
   }
   return (
-    <li className="border border-rule bg-sheet p-4">
+    <li className="card p-4">
       <ErrorNote message={error} />
       <div className="grid gap-3 md:grid-cols-[12rem_1fr_auto] md:items-end">
         <label className="text-sm">Label<input className="field mt-1" value={label} onChange={(e) => setLabel(e.target.value)} /></label>
@@ -90,7 +90,7 @@ export default function Cvs() {
 
   const active = (cvs.data || []).filter((c) => c.active).length;
   return (
-    <Shell title="CVs and facts">
+    <Shell title="My CV" intro="Your CV is read once. What it found is shown here; fix anything that is wrong.">
       <ErrorNote message={error || cvs.error || facts.error} />
       <h2 className="text-xl">Your CVs</h2>
       <p className="mt-1 max-w-prose text-sm text-slate">Keep up to four. For each job the agent scores the best-fitting ones and sends the winner. Every application records which CV went out.</p>

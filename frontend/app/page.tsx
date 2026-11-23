@@ -23,7 +23,7 @@ type Home = {
 function Stat({ label, value, note, tone }: { label: string; value: number; note?: string; tone?: "good" | "warn" | "bad" }) {
   const color = tone === "good" ? "text-sent" : tone === "warn" ? "text-waiting" : tone === "bad" ? "text-problem" : "text-ink";
   return (
-    <div className="rounded-lg border border-rule bg-sheet p-4">
+    <div className="card p-4">
       <p className={`text-3xl font-semibold ${color}`}>{value}</p>
       <p className="mt-1 text-sm">{label}</p>
       {note && <p className="text-xs text-slate">{note}</p>}
@@ -69,7 +69,7 @@ function HomeScreen() {
       <ErrorNote message={home.error} />
       {h && (
         <>
-          <section className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-rule bg-sheet p-5" aria-label="Status">
+          <section className="flex flex-wrap items-center justify-between gap-3 card p-5" aria-label="Status">
             <div>
               <p className="letter text-2xl"><Dot state={h.status.state} />{h.status.text}</p>
               <p className="mt-1 text-sm text-slate">
@@ -102,7 +102,7 @@ function HomeScreen() {
           <section className="mt-8" aria-label="Needs you">
             <h2 className="text-xl">Needs you{h.needs_you.length > 0 ? ` (${h.needs_you.length})` : ""}</h2>
             {h.needs_you.length === 0 ? <p className="mt-2 text-sm text-slate">Nothing needs you.</p> : (
-              <ul className="mt-2 divide-y divide-rule border-y border-rule">
+              <ul className="mt-2 card divide-y divide-rule px-4">
                 {h.needs_you.map((n, i) => (
                   <li key={i} className="flex items-center justify-between gap-3 py-3 text-sm">
                     <span>{n.urgent && <strong className="mr-2 text-problem">Urgent</strong>}{n.title}</span>
@@ -120,7 +120,7 @@ function HomeScreen() {
           <section className="mt-8" aria-label="Latest">
             <h2 className="text-xl">Activity</h2>
             {h.latest.length === 0 && h.skipped.total === 0 ? <p className="mt-2 text-sm text-slate">Nothing yet. The first results appear after the first search.</p> : (
-              <ul className="mt-2 divide-y divide-rule border-y border-rule text-sm">
+              <ul className="mt-2 card divide-y divide-rule px-4 text-sm">
                 {h.latest.map((l, i) => (
                   <li key={i} className="flex flex-wrap gap-x-3 py-2">
                     <span className="w-28 shrink-0 text-slate">{fmtDate(l.at)}</span>

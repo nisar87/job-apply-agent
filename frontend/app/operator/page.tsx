@@ -192,7 +192,7 @@ export default function Admin() {
             </table>
           </div>
           {reset && (
-            <div className="mt-3 border border-rule bg-sheet p-3 text-sm">
+            <div className="mt-3 card p-3 text-sm">
               <p>Password reset link for <strong>{reset.email}</strong>. Send it to them privately; it works once and expires in an hour.</p>
               <p className="mt-2 flex flex-wrap items-center gap-2">
                 <input className="field min-w-0 flex-1 font-mono text-xs" readOnly value={reset.link} aria-label="Reset link" onFocus={(e) => e.target.select()} />
@@ -240,7 +240,7 @@ export default function Admin() {
           <h2 className="text-xl">Employers asking not to be contacted</h2>
           <ul className="mt-2 space-y-2 text-sm">
             {requests.data.map((r) => (
-              <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 border border-rule bg-sheet p-3">
+              <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 card p-3">
                 <span>{r.contact_email}{r.company ? `, ${r.company}` : ""}{r.message ? `: ${r.message}` : ""}</span>
                 <span className="flex gap-2">
                   <button className="btn" onClick={() => act(() => api(`/api/operator/block-requests/${r.id}?approve=true`, { method: "POST" }), requests.reload)}>Block for everyone</button>

@@ -38,8 +38,8 @@ Step 1 of 4  Your CV
 +--------------------------------------------------+
    after reading:
    Here is what I understood
-   Name            Nisar Ahmad                [edit]
-   Based in        Islamabad, Pakistan        [edit]
+   Name            Maria Huber                [edit]
+   Based in        Vienna, Austria            [edit]
    Experience      15 years                   [edit]
    Work you do     Senior backend engineer    [edit]
    Main skills     C#, .NET, SQL Server ...   [edit]
@@ -61,7 +61,7 @@ Step 3 of 4  What you want
 | Senior backend engineer roles using C# and .NET, |
 | remote or in countries I can work in.            |
 +--------------------------------------------------+
-   Where may you work today?   [ Pakistan x ] [ add ]
+   Where may you work today?   [ Austria x ] [ add ]
    Apply where the employer sponsors a visa?  (o) Yes ( ) No
                                          [ Continue ]
 ```

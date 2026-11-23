@@ -144,8 +144,11 @@ def record_health(user_id: uuid.UUID, started: datetime, seconds: float, errors:
     """What the operator sees per user: when the last pass ran, how long it took and what went wrong."""
     import json
 
-    get_redis().hset(HEALTH_KEY, str(user_id), json.dumps({
-        "at": started.isoformat(), "seconds": round(seconds, 1), "errors": errors[:5]}))
+    try:
+        get_redis().hset(HEALTH_KEY, str(user_id), json.dumps({
+            "at": started.isoformat(), "seconds": round(seconds, 1), "errors": errors[:5]}))
+    except Exception:  # noqa: BLE001 - a failed health note must never stop or fail a background pass
+        log.warning("could not record the background pass for %s", user_id)
 
 
 def health() -> dict[str, dict]:
@@ -153,7 +156,7 @@ def health() -> dict[str, dict]:
 
     try:
         return {k: json.loads(v) for k, v in get_redis().hgetall(HEALTH_KEY).items()}
-    except (ValueError, TypeError):
+    except Exception:  # noqa: BLE001
         return {}
 
 

@@ -35,3 +35,13 @@ def test_a_second_job_for_a_user_already_running_does_nothing(monkeypatch):
     with run_lock(uid, "tick"):
         assert jobs.tick_user_task.run(str(uid)) == {"busy": True, "sent": 0}
     assert called == []
+
+
+def test_the_database_backed_store_keeps_the_background_health(client):
+    """Staging has no Redis: the health note must work on the database store too."""
+    from app.kv import PostgresKV
+    kv = PostgresKV()
+    kv.hset("health:test", "u1", '{"a": 1}')
+    kv.hset("health:test", "u2", '{"a": 2}')
+    assert kv.hgetall("health:test") == {"u1": '{"a": 1}', "u2": '{"a": 2}'}
+    kv.delete("health:test#u1", "health:test#u2")

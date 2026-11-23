@@ -63,12 +63,14 @@ export default function Setup() {
   // Resume where the person left off: the first step that is not done yet.
   useEffect(() => {
     if (started || !status.data || !cvs.data) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setStarted(true);
     setStep(!status.data.has_cv ? 0 : !status.data.mail_connected || !status.data.escalation_email ? 1 : 2);
   }, [status.data, cvs.data, started]);
   useEffect(() => {
     const rtw = facts.data?.right_to_work_countries;
-    if (Array.isArray(rtw) && countries.length === 0) setCountries(rtw as string[]);
+    if (Array.isArray(rtw) && countries.length === 0) // eslint-disable-next-line react-hooks/set-state-in-effect
+      setCountries(rtw as string[]);
   }, [facts.data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cv = (cvs.data || []).find((c) => c.active);

@@ -115,6 +115,8 @@ function HomeScreen() {
 
 export default function Page() {
   const [mode, setMode] = useState<"loading" | "out" | "in">("loading");
+  // The sign-in token exists only in the browser, so the choice is made after the first render.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setMode(getToken() ? "in" : "out"), []);
   if (mode === "loading") return null;
   return mode === "in" ? <HomeScreen /> : <FrontDoor />;

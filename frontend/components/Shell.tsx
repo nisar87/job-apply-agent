@@ -26,6 +26,7 @@ export default function Shell({ title, children, actions }: { title: string; chi
       router.replace(loginPath());
       return;
     }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSignedIn(true);
     api<Me>("/api/auth/me").then(setMe).catch(() => undefined);
     api<{ status: string }[]>("/api/mail/account")

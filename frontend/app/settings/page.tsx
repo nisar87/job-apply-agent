@@ -20,6 +20,7 @@ const STATES = [
 function Section({ id, title, summary, children, open }: { id: string; title: string; summary: string; children: React.ReactNode; open?: boolean }) {
   const [isOpen, setOpen] = useState(!!open);
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (typeof window !== "undefined" && window.location.hash === `#${id}`) setOpen(true);
   }, [id]);
   return (
@@ -80,7 +81,7 @@ export default function Settings() {
       <p className="mb-2 max-w-prose text-sm text-slate">Everything has a working default. You only need this page to change something.</p>
       <Section id="search" title="What you want" summary="Your job search, how picky, how many a day" open><WhatYouWant /></Section>
       <Section id="cv" title="Your CV and facts" summary="What the agent knows about you">
-        <p className="text-sm">The agent answers employers' questions only from your CV and these facts.</p>
+        <p className="text-sm">The agent answers employers&apos; questions only from your CV and these facts.</p>
         <p className="mt-2"><Link className="btn btn-quiet" href="/cvs">Open your CV and facts</Link></p>
       </Section>
       <Section id="where" title="Where and how much" summary="Countries, sending hours, places the agent looks">

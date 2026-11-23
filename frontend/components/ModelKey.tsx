@@ -26,7 +26,7 @@ function Row({ label, hint, has, placeholder, onSave, onRemove, busy }: {
   );
 }
 
-export default function ModelKey() {
+export default function ModelKey({ onChanged }: { onChanged?: () => void } = {}) {
   const status = useLoad<KeyStatus>("/api/account/model-key");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -41,6 +41,7 @@ export default function ModelKey() {
       await api(`/api/account/model-key${query}`, { method, json });
       setNote(done);
       status.reload();
+      onChanged?.();
     } catch (e) {
       setError(errorText(e));
     } finally {
@@ -55,7 +56,7 @@ export default function ModelKey() {
     : k.source === "platform" ? "The service's keys." : "No key: nothing can run.";
   return (
     <section>
-      <p className="max-w-prose text-sm text-slate">Give a Claude key, a Gemini key, or both. Give neither and the service&apos;s own keys are used.</p>
+      <p className="max-w-prose text-sm text-slate">Add your own Gemini key (needed: it does the searching). A Claude key is optional and makes the writing better. Your keys are yours alone: nobody else&apos;s work ever runs on them, and yours never runs on anyone else&apos;s.</p>
       <p className="mt-2 text-sm"><b>In use:</b> {using}
         <span className="ml-2 text-slate">Spent today ${k.spent_today_usd.toFixed(2)}{k.cap_usd ? ` of $${k.cap_usd.toFixed(2)}` : ""}</span></p>
       {k.message && <p className="mt-1 text-sm text-problem">{k.message}</p>}

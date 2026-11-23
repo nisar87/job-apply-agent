@@ -101,7 +101,7 @@ export default function Shell({ title, intro, children, actions }: { title: stri
         )}
         {noKey && (
           <p className="mb-4 rounded-lg border border-problem bg-sheet px-3 py-2 text-sm" role="alert">
-            The agent is stopped: {noKey.replace(/^no Gemini API key: /, "there is no Gemini API key to run on. ")}{" "}
+            The agent is stopped: {noKey.replace(/^no key: /, "")}{" "}
             <Link className="font-semibold underline" href="/account">Add your key</Link>
           </p>
         )}

@@ -123,11 +123,38 @@ def tick(now: datetime | None = None) -> dict:
 
     # The job harvester runs every two hours in its own thread, so this tick is not held up (see harvest.py).
     summary["harvest_started"] = harvest.start_if_due(now)
+    # One queued job per user: a slow or failing user never delays the others (roadmap phase 6). With a worker
+    # the jobs run in parallel across worker processes; inline (development, tests) they run one after another.
+    from app.tasks import dispatch
+    from app.tasks.jobs import tick_user_task
+
     for user_id in _active_users():
-        result = tick_user(user_id, now, fetcher=Fetcher())
+        result = dispatch.enqueue(tick_user_task, str(user_id), now.isoformat())
         summary["users"] += 1
-        summary["sent"] += result["sent"]
+        if isinstance(result, dict):
+            summary["sent"] += int(result.get("sent", 0))
+            summary["failed"] = summary.get("failed", 0) + (1 if result.get("failed") else 0)
     return summary
+
+
+HEALTH_KEY = "health:tick"
+
+
+def record_health(user_id: uuid.UUID, started: datetime, seconds: float, errors: list[str]) -> None:
+    """What the operator sees per user: when the last pass ran, how long it took and what went wrong."""
+    import json
+
+    get_redis().hset(HEALTH_KEY, str(user_id), json.dumps({
+        "at": started.isoformat(), "seconds": round(seconds, 1), "errors": errors[:5]}))
+
+
+def health() -> dict[str, dict]:
+    import json
+
+    try:
+        return {k: json.loads(v) for k, v in get_redis().hgetall(HEALTH_KEY).items()}
+    except (ValueError, TypeError):
+        return {}
 
 
 def allocate_places(now: datetime | None = None) -> int:

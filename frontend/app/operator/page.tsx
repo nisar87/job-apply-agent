@@ -8,7 +8,7 @@ import { api } from "@/lib/api";
 
 type Overview = {
   global_pause: boolean;
-  users: { id: string; email: string; status: string; mail: string; failed_runs_24h: number; sent_24h: number; funnel_7d?: Funnel }[];
+  users: { id: string; email: string; status: string; mail: string; failed_runs_24h: number; sent_24h: number; funnel_7d?: Funnel; last_pass?: { at: string; seconds: number; errors: string[] } | null }[];
 };
 type Funnel = {
   new_jobs: number; checked: number; good: number; with_email: number; written: number; stopped: number; sent: number;
@@ -118,7 +118,7 @@ export default function Admin() {
           <p className="mt-1 text-sm text-slate">Each step from jobs found to applications sent, per user. The last column names the step that kept the week below its target.</p>
           <div className="mt-2 overflow-x-auto">
             <table className="ledger">
-              <thead><tr><th>User</th><th>New jobs</th><th>Checked</th><th>Good matches</th><th>With an address in the ad</th><th>Written</th><th>Stopped by checks</th><th>Sent</th><th>Target</th><th>Where it was lost</th></tr></thead>
+              <thead><tr><th>User</th><th>New jobs</th><th>Checked</th><th>Good matches</th><th>With an address in the ad</th><th>Written</th><th>Stopped by checks</th><th>Sent</th><th>Target</th><th>Where it was lost</th><th>Last background pass</th></tr></thead>
               <tbody>
                 {overview.data.users.map((u) => (
                   <tr key={u.id}>
@@ -126,6 +126,7 @@ export default function Admin() {
                     <td>{u.funnel_7d?.new_jobs ?? "-"}</td><td>{u.funnel_7d?.checked ?? "-"}</td><td>{u.funnel_7d?.good ?? "-"}</td>
                     <td>{u.funnel_7d?.with_email ?? "-"}</td><td>{u.funnel_7d?.written ?? "-"}</td><td>{u.funnel_7d?.stopped ?? "-"}</td>
                     <td>{u.funnel_7d?.sent ?? "-"}</td><td>{u.funnel_7d?.target ?? "-"}</td><td className="text-xs">{u.funnel_7d?.short_at || "Target met"}</td>
+                    <td className="text-xs">{u.last_pass ? `${new Date(u.last_pass.at).toLocaleString()}, ${u.last_pass.seconds}s${u.last_pass.errors.length ? `, problem: ${u.last_pass.errors[0]}` : ""}` : "not yet"}</td>
                   </tr>
                 ))}
               </tbody>

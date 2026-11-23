@@ -26,6 +26,33 @@ def ping_llm(user_id: str) -> dict:
         return {"run_id": str(run.id), "text": result.text}
 
 
+@celery_app.task(name="jobs.tick_user", soft_time_limit=1500, time_limit=1700)
+def tick_user_task(user_id: str, now_iso: str | None = None) -> dict:
+    """One user's whole pass (discovery, drafting, sending, inbox) as its own queued job. A second job for the
+    same user while one runs does nothing, and any failure is recorded for the operator, never raised to the others."""
+    import time
+    from datetime import UTC, datetime
+
+    from app.connectors.fetcher import Fetcher
+    from app.tasks import scheduler
+    from app.tasks.locks import LockBusy
+
+    uid = uuid.UUID(user_id)
+    now = datetime.fromisoformat(now_iso) if now_iso else datetime.now(UTC)
+    started, t0 = datetime.now(UTC), time.monotonic()
+    try:
+        with run_lock(uid, "tick", ttl_seconds=1700):
+            result = scheduler.tick_user(uid, now, fetcher=Fetcher())
+    except LockBusy:
+        return {"busy": True, "sent": 0}
+    except Exception as exc:  # noqa: BLE001 - recorded, and the other users' jobs carry on
+        scheduler.log.exception("tick failed for user %s", user_id)
+        scheduler.record_health(uid, started, time.monotonic() - t0, [f"{type(exc).__name__}: {exc}"[:200]])
+        return {"failed": True, "sent": 0}
+    scheduler.record_health(uid, started, time.monotonic() - t0, list(result.get("errors", [])))
+    return result
+
+
 @celery_app.task(name="jobs.scheduler_tick")
 def scheduler_tick() -> dict:
     from app.tasks import scheduler

@@ -62,9 +62,20 @@ as deep links that Settings points to; they are removed after the owner signs of
 phase 5: moving the CV, search-detail and block-list editors fully into Settings, rewriting `e2e/smoke.py` for the
 new flow, the keyboard-only and 360-pixel passes, and the three-new-users test.
 
-Not yet built from the roadmap: the labelled 200-posting regression set (needs the owner's "would apply" labels), per-provider spend column and key screens, the new interface (5), background scale (6), supply work (7), Gmail sign-in (8), CV tailoring client (9).
+## Version 2, phase 6 (background and scale), on branch v2-build
 
-274 backend tests pass (with the migration database from `scripts/init-db.sql`); lint passes.
+| Change | Effect |
+| --- | --- |
+| One queued job per user | The five-minute tick no longer loops over every user itself; it queues one job per user (`jobs.tick_user`). With a worker they run in parallel; a user already running is skipped; each job has a time limit |
+| A failing user | Recorded for the operator, never raised to the others (tested with 20 users, one failing) |
+| Health | Admin page shows each user's last background pass: when, how long, and the first problem |
+| Collection | Already its own background thread (harvest), not part of the tick |
+
+Not yet proven: 20 simulated users through a full cycle within one hour on the real stack (needs a deployed worker).
+
+Not yet built from the roadmap: the labelled 200-posting regression set (needs the owner's "would apply" labels), per-provider spend column and key screens, the new interface (5), supply work (7), Gmail sign-in (8), CV tailoring client (9).
+
+276 backend tests pass (with the migration database from `scripts/init-db.sql`); lint passes.
 
 Not yet done in phase 0: a physically separate live deployment (own Cloud Run service, database and Gmail
 connection) for the owner's real job hunt, so the test site is only ever a test site. That is infrastructure, needs

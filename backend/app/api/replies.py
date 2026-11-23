@@ -163,8 +163,10 @@ def operator_overview(_: uuid.UUID = Depends(_operator)):
         failed = dict(s.execute(select(Run.user_id, func.count()).where(Run.state == "failed", Run.created_at >= day_ago).group_by(Run.user_id)).all())
         sent = dict(s.execute(select(Application.user_id, func.count()).where(Application.sent_at >= day_ago).group_by(Application.user_id)).all())
         from app.services import report
+        from app.tasks import scheduler as tick_scheduler
 
         now = datetime.now(UTC)
+        tick_health = tick_scheduler.health()
         week = now - timedelta(days=7)
         return {
             "global_pause": bool(get_redis().get("global_pause")),
@@ -172,7 +174,8 @@ def operator_overview(_: uuid.UUID = Depends(_operator)):
                        "spend_today_usd": round(float(spend.get(u.id, 0.0)), 4), "failed_runs_24h": int(failed.get(u.id, 0)),
                        "sent_24h": int(sent.get(u.id, 0)),
                        # Each step from new jobs to emails sent over the last 7 days, and where the target was lost.
-                       "funnel_7d": report.funnel(s, u, week, now)} for u in users],
+                       "funnel_7d": report.funnel(s, u, week, now),
+                       "last_pass": tick_health.get(str(u.id))} for u in users],
         }
 
 

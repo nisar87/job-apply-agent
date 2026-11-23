@@ -4,6 +4,8 @@ Called only from this server. Off until `CV_TAILOR_URL` is set. Any failure, quo
 goes out with the person's own CV, so tailoring can never block or endanger an application.
 """
 
+import hashlib
+import json
 import logging
 import time
 import uuid
@@ -21,6 +23,8 @@ from app.services.writing import fact_check
 
 log = logging.getLogger(__name__)
 MAX_TERMS = 8
+_paused_until = 0.0   # after quota_exhausted the service is not asked again until then
+PAUSE_SECONDS = 3600
 VERSION = 1   # part of the idempotency key: raise it to make the service redo earlier requests
 
 
@@ -74,7 +78,8 @@ class TailorClient:
         return data
 
     def pdf(self, result: dict) -> bytes:
-        resp = self._http.get(self.base.removesuffix("/v1") + "/v1" + result["pdf_path"].removeprefix("/v1"), headers=self._headers)
+        path = "/" + str(result.get("pdf_path", "")).lstrip("/")
+        resp = self._http.get(self.base.removesuffix("/v1") + "/v1" + path.removeprefix("/v1"), headers=self._headers)
         if resp.status_code != 200 or not resp.content.startswith(b"%PDF"):
             raise TailorError("The service did not return a PDF", str(resp.status_code))
         return resp.content
@@ -83,7 +88,10 @@ class TailorClient:
         resp = self._http.delete(f"{self.base}/users/{user_ref}", headers=self._headers)
         if resp.status_code != 200:
             raise self._error(resp)
-        return int(resp.json().get("deleted", 0))
+        try:
+            return int(resp.json().get("deleted", 0))
+        except (ValueError, TypeError, AttributeError):
+            return 0
 
 
 def enabled() -> bool:
@@ -115,7 +123,7 @@ def emphasis_for(rubric: dict, cv_text: str) -> list[dict]:
 
 
 def should_tailor(match: Match, emphasis: list[dict]) -> bool:
-    return (enabled() and match.decision in ("apply", "manual") and (match.total_score or 0) >= get_settings().cv_tailor_min_score
+    return (enabled() and time.time() >= _paused_until and match.decision in ("apply", "manual") and (match.total_score or 0) >= get_settings().cv_tailor_min_score
             and bool(emphasis))
 
 
@@ -143,17 +151,23 @@ def tailored_attachment(session: Session, llm: LLMClient, *, user: User, posting
     if hit:
         return hit
     fields = posting.fields or {}
+    job_language = (fields.get("language") or "en")[:2].lower()
+    if job_language != "en":
+        return None                          # the service is English only: it refuses anything else
+    country = (posting.country or "").strip()
     body = {
         "user_ref": user_ref(user.id),
         "base_cv": {"profile": version.profile},
         "job": {"title": posting.title, "company": getattr(posting, "company_name", "") or fields.get("company", "") or "",
-                "description": (posting.description or "")[:20000], "language": (fields.get("language") or "en")[:2],
-                "country": posting.country or ""},
+                "description": (posting.description or "")[:20000], "language": "en",
+                **({"country": country.upper()} if len(country) == 2 and country.isalpha() else {})},
         "emphasis": emphasis, "max_pages": 2, "purpose": purpose,
     }
     if purpose == "upload" and version.file_key:
         pass          # the structured profile is enough; the original file is sent only when the profile lacks facts
-    key = f"tailor-{user.id}-{posting.id}-{purpose}-v{VERSION}"
+    # The service answers 409 when a key is reused with a different body, so the body is part of the key.
+    digest = hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()[:16]
+    key = f"t{VERSION}-{user.id.hex[:12]}-{posting.id.hex[:12]}-{purpose}-{digest}"
     try:
         client = client or TailorClient()
         result = client.tailor(body, key)
@@ -166,6 +180,9 @@ def tailored_attachment(session: Session, llm: LLMClient, *, user: User, posting
             return None
         pdf = client.pdf(result)
     except (TailorError, httpx.HTTPError) as exc:
+        if getattr(exc, "code", "") == "quota_exhausted":
+            global _paused_until
+            _paused_until = time.time() + PAUSE_SECONDS
         audit.record(session, user_id=user.id, actor="agent", tool="tailor_cv",
                      result={"used": False, "error": getattr(exc, "code", type(exc).__name__)},
                      reason=f"tailoring unavailable: {exc}"[:300])
@@ -174,7 +191,7 @@ def tailored_attachment(session: Session, llm: LLMClient, *, user: User, posting
     file_key, _ = storage.save(user.id, name, pdf)
     audit.record(session, user_id=user.id, actor="agent", tool="tailor_cv",
                  result={"used": True, "request_id": result.get("id"), "template": result.get("template"),
-                         "changes": len(result.get("changes", [])), "cost_usd": (result.get("usage") or {}).get("cost_usd")},
+                         "changes": len(result.get("changes", [])), "warnings": (result.get("warnings") or [])[:5], "cost_usd": (result.get("usage") or {}).get("cost_usd")},
                  reason="a tailored CV was made for this job")
     return {"name": name, "key": file_key, "tailored": {
         "family": family, "purpose": purpose, "terms": sorted(terms), "request_id": result.get("id"),

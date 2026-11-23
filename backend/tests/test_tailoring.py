@@ -103,6 +103,7 @@ def job(client, llm):
 def turn_on(monkeypatch):
     monkeypatch.setattr(get_settings(), "cv_tailor_url", "https://tailor.example/v1")
     monkeypatch.setattr(get_settings(), "cv_tailor_api_key", "key")
+    monkeypatch.setattr(tailoring, "_paused_until", 0.0)
 
 
 def test_a_tailored_cv_is_stored_with_its_changes_and_one_request(client, llm, monkeypatch):
@@ -113,7 +114,7 @@ def test_a_tailored_cv_is_stored_with_its_changes_and_one_request(client, llm, m
                                             purpose="email", client=svc.client())
         assert att and att["tailored"]["template"] == "plain" and storage.load(att["key"]) == PDF
         posts = [c for c in svc.calls if c[0] == "POST"]
-        assert len(posts) == 1 and posts[0][2].startswith("tailor-")
+        assert len(posts) == 1 and posts[0][2].startswith("t1-")
 
 
 def test_a_cv_that_states_something_new_is_discarded(client, llm, monkeypatch):
@@ -148,3 +149,29 @@ def test_deleting_an_account_asks_the_service_to_forget_the_person(monkeypatch):
     svc = Service()
     tailoring.delete_remote_data(uuid.uuid4(), client=svc.client())
     assert svc.calls[0][0] == "DELETE" and "/users/u_" in svc.calls[0][1]
+
+
+def test_quota_exhausted_pauses_the_service_and_a_non_english_job_is_not_sent(client, llm, monkeypatch):
+    turn_on(monkeypatch)
+    with job(client, llm) as (s, user, version, posting, match):
+        posting.fields = {**(posting.fields or {}), "language": "de"}
+        svc = Service()
+        assert tailoring.tailored_attachment(s, Llm(), user=user, posting=posting, match=match, version=version,
+                                             purpose="email", client=svc.client()) is None
+        assert not [c for c in svc.calls if c[0] == "POST"]            # English only: never asked
+        posting.fields = {**posting.fields, "language": "en"}
+        assert tailoring.tailored_attachment(s, Llm(), user=user, posting=posting, match=match, version=version,
+                                             purpose="email", client=Service(status=429, error="quota_exhausted").client()) is None
+        assert tailoring.should_tailor(match, [{"term": "x", "evidence": "y"}]) is False   # paused until the budget resets
+
+
+def test_the_request_key_changes_when_the_request_changes(client, llm, monkeypatch):
+    turn_on(monkeypatch)
+    with job(client, llm) as (s, user, version, posting, match):
+        keys = []
+        for purpose in ("email", "upload"):
+            svc = Service()
+            tailoring.tailored_attachment(s, Llm(), user=user, posting=posting, match=match, version=version,
+                                          purpose=purpose, client=svc.client())
+            keys += [c[2] for c in svc.calls if c[0] == "POST"]
+        assert len(keys) == 2 and keys[0] != keys[1] and all(len(k) <= 100 for k in keys)

@@ -82,6 +82,7 @@ Not yet proven: 20 simulated users through a full cycle within one hour on the r
 | Change | Effect |
 | --- | --- |
 | `services/tailoring.py` | Client for `docs/CV_TAILORING_API.md`: bearer key, https only, idempotency key per person, job and purpose, waits 50 s then polls every 5 s for up to 5 minutes, downloads the PDF, deletes a person's data on account deletion |
+| Checked against the finished service document (23 Nov) | Profile shape matches. Added: English-only (other job languages are never sent), a two-letter country only, the request body in the idempotency key (the service answers 409 for a changed body under the same key), a one-hour pause after `quota_exhausted`, and unapplied-emphasis warnings in the audit log. Set `CV_TAILOR_URL` to the address ending in `/v1` |
 | When it is used | Only if `CV_TAILOR_URL` and `CV_TAILOR_API_KEY` are set, the job passed the gates, scored at least 85, and an essential requirement is proven by a CV line but worded differently. Same kind of job and terms reuses the earlier tailored CV |
 | Safety | The returned text is fact-checked against the original CV; anything new discards it. Any error, quota or timeout means the person's own CV. The tailored PDF is stored and used both for emails and for form uploads |
 

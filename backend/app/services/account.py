@@ -162,6 +162,9 @@ def delete_account(session: Session, user_id: uuid.UUID) -> None:
                            params={"token": decrypt_secret(account.encrypted_refresh_token)}, timeout=15)
             except Exception:  # noqa: BLE001 - deletion continues even if Google cannot be reached
                 log.warning("could not revoke Google access for account %s", account.id)
+    from app.services import tailoring
+
+    tailoring.delete_remote_data(user_id)
     storage.delete_user_files(user_id)
     session.delete(session.get(User, user_id))
     session.flush()

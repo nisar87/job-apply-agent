@@ -26,6 +26,13 @@ class Settings(BaseSettings):
     gemini_model_fast: str = "gemini-3.5-flash-lite"
     gemini_model_strong: str = "gemini-3.8-flash"
     gemini_model_embed: str = "gemini-embedding-001"
+    # CV tailoring service (AI CV Studio). Off while the address is empty.
+    cv_tailor_url: str = ""          # for example https://tailor-api.aicvstudio.app/v1
+    cv_tailor_api_key: str = ""
+    cv_tailor_min_score: float = 85.0
+    cv_tailor_poll_seconds: float = 5.0
+    cv_tailor_wait_seconds: float = 300.0
+
     # Claude (optional): strong tasks run here when a key is set; Gemini takes over if Claude fails or runs out.
     anthropic_api_key: str = ""
     claude_model_strong: str = "claude-sonnet-5-5"

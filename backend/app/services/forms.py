@@ -197,6 +197,14 @@ def plan_answers(llm: LLMClient, fields: list[FormField], *, user: User, profile
     return {"answers": answers, "files": files, "consents": consents, "missing": missing}
 
 
+def cv_file(app: Application, version: CVVersion) -> tuple[str, bytes]:
+    """The CV file this application carries: a tailored one when it was made, else the person's own."""
+    attachment = (app.attachments or [{}])[0]
+    if attachment.get("key"):
+        return attachment.get("name") or version.file_name, storage.load(attachment["key"])
+    return version.file_name, storage.load(version.file_key)
+
+
 def _fill(driver: BrowserDriver, fields: list[FormField], plan: dict, *, cv_name: str, cv_data: bytes, cover_text: str) -> None:
     by_id = {f.id: f for f in fields}
     for fid, value in plan["answers"].items():
@@ -278,7 +286,8 @@ def prepare_form(session: Session, llm: LLMClient, app: Application, driver: Bro
                             country=posting.country, cover_text=app.body)
         if plan["missing"]:
             raise FormStopped("the form asks for something that is not on your fact sheet: " + "; ".join(plan["missing"][:5]))
-        _fill(driver, fields, plan, cv_name=version.file_name, cv_data=storage.load(version.file_key), cover_text=app.body)
+        cv_name, cv_data = cv_file(app, version)
+        _fill(driver, fields, plan, cv_name=cv_name, cv_data=cv_data, cover_text=app.body)
         key, _ = storage.save(user.id, f"form-{app.id}.png", driver.screenshot())
         app.form_data = {
             "hiring_system": system, "form_url": form_url, "fields": [f.to_dict() for f in fields], "answers": plan["answers"],
@@ -442,7 +451,8 @@ def submit_form(session: Session, app: Application, *, now: datetime | None = No
                 plan["answers"][fid] = app.form_data["answers"][old["id"]]
             if old["id"] in app.form_data["files"]:
                 plan["files"][fid] = app.form_data["files"][old["id"]]
-        _fill(driver, fields, plan, cv_name=version.file_name, cv_data=storage.load(version.file_key), cover_text=app.body)
+        cv_name, cv_data = cv_file(app, version)
+        _fill(driver, fields, plan, cv_name=cv_name, cv_data=cv_data, cover_text=app.body)
         driver.submit()
         text = driver.page_text().lower()
         markers = HIRING_SYSTEMS.get(system, {}).get("success", ()) + GENERIC_SUCCESS

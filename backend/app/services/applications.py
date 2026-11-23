@@ -1,5 +1,6 @@
 """Drafting, approving and sending applications (master document, sections 8 and 10)."""
 
+import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -83,6 +84,8 @@ def skip_manual(session: Session, app: Application, reason: str = "not for you")
     audit.record(session, user_id=app.user_id, actor="user", tool="skip_manual", entity_id=app.id, reason=reason[:200])
     return app
 
+log = logging.getLogger(__name__)
+
 
 class ApplicationError(ValueError):
     pass
@@ -129,12 +132,22 @@ def create_draft(session: Session, llm: LLMClient, campaign: Campaign, match: Ma
         status = "failed"
     else:
         status = "awaiting_approval"
+    from app.services import tailoring
+
+    attachment = {"name": version.file_name, "key": version.file_key}
+    if status != "failed":
+        try:
+            attachment = tailoring.tailored_attachment(
+                session, llm, user=user, posting=posting, match=match, version=version,
+                purpose="upload" if route == "form" else "email") or attachment
+        except Exception:  # noqa: BLE001 - tailoring must never stop an application
+            log.exception("tailoring failed for posting %s", posting.id)
     now = datetime.now(UTC)
     app = Application(
         user_id=user.id, posting_id=posting.id, campaign_id=campaign.id, match_id=match.id, cv_version_id=version.id,
         status=status, route=route, idempotency_key=idempotency_key("apply", user.id, posting.id),
         subject=draft.get("subject", ""), body=draft.get("body", ""), language=draft.get("language", "en"),
-        claims=draft.get("claims", []), attachments=[{"name": version.file_name, "key": version.file_key}],
+        claims=draft.get("claims", []), attachments=[attachment],
         recipient=posting.contact_email, recipient_domain=registered_domain(domain_of(posting.contact_email)) if posting.contact_email else None,
         company_id=posting.company_id, score=match.total_score, neutral_score=match.neutral_score, check_results=checks,
         expires_at=now + timedelta(days=MANUAL_VALID_DAYS if route == "form" else config.draft_expiry_days),

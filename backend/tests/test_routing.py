@@ -124,3 +124,26 @@ def test_a_stalled_claude_call_is_given_up_at_once_so_gemini_can_answer():
     with pytest.raises(ClaudeUnavailable):
         c.generate("hello")
     assert len(calls) == 1             # no repeated waits
+
+
+def test_a_person_with_their_own_gemini_key_still_gets_claude_for_strong_tasks(client, llm, monkeypatch):
+    from app.config import get_settings
+    from app.llm import access
+    from app.llm.routing import RoutedLLM
+    from tests.helpers import make_world
+    monkeypatch.setattr(get_settings(), "anthropic_api_key", "k")
+    monkeypatch.setattr(get_settings(), "gemini_api_key", "g")
+    monkeypatch.setattr(get_settings(), "llm_provider", "gemini")
+    import app.llm as llm_pkg
+    w = make_world(client, llm)
+    monkeypatch.setattr(llm_pkg, "_override", None)      # the real client choice, not the test double
+    with w.session() as s:
+        from app.models import User
+        user = s.get(User, w.user_id)
+        access.set_own_key(user, "AIza-own-key")
+        user.platform_key_allowed = True
+        s.flush()
+        assert isinstance(access.client_for(s, w.user_id), RoutedLLM)
+        user.platform_key_allowed = False
+        s.flush()
+        assert not isinstance(access.client_for(s, w.user_id), RoutedLLM)

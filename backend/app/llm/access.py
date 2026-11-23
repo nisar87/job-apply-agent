@@ -115,8 +115,12 @@ def client_for(session: Session, user_id: uuid.UUID) -> LLMClient:
         if get_settings().llm_provider == "fake":
             return get_llm()
         from app.llm.gemini import GeminiClient
+        from app.llm.routing import with_claude
 
-        return GeminiClient(api_key=own_key(user))
+        # The person's own Gemini key serves the quick tasks. The strong ones still go to Claude on the platform's key
+        # when the admin allows this person the platform's models and a Claude key is configured.
+        gemini = GeminiClient(api_key=own_key(user))
+        return with_claude(gemini) if user.platform_key_allowed else gemini
     if source == "platform":
         return get_llm()
     raise NoModelKey(why_no_key(settings))

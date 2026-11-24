@@ -39,6 +39,8 @@ export default function Setup() {
         const form = new FormData();
         form.set("file", file);
         form.set("label", "My CV");
+        const existing = (cvs.data || []).find((c) => c.is_default) || (cvs.data || [])[0];
+        if (existing) { form.set("label", existing.label); form.set("cv_id", existing.id); }   // a new file replaces the old one
         await api("/api/cvs", { method: "POST", body: form });
         setFile(null);
         cvs.reload();

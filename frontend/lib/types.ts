@@ -33,5 +33,5 @@ export type Country = { code: string; name: string; sources: string[]; adzuna_po
 
 export type CV = {
   id: string; label: string; target_roles: string[]; keywords: string[]; language: string; is_default: boolean;
-  active: boolean; current_version_id: string | null;
+  active: boolean; current_version_id: string | null; file_name?: string | null; uploaded_at?: string | null;
 };

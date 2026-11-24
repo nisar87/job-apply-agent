@@ -148,3 +148,27 @@ def test_tailor_test_reports_when_the_service_is_not_set_up(client, llm, admin_e
     w = make_world(client, llm, email="a@example.com")
     r = client.post("/api/operator/tailor-test", headers=w.headers)
     assert r.status_code == 200 and r.json()["ok"] is False
+
+
+def test_cost_report_is_for_the_operator_and_lists_the_work(client, llm, admin_env):
+    admin = make_world(client, llm)
+    other = make_world(client, llm, email="b@example.com")
+    assert client.get("/api/operator/cost-report").status_code == 401
+    assert client.get("/api/operator/cost-report", headers=other.headers).status_code == 404
+    r = client.get("/api/operator/cost-report?days=3", headers=admin.headers)
+    assert r.status_code == 200, r.text
+    assert {"usage_by_day", "runs", "work_done", "new_postings", "new_matches"} <= set(r.json())
+
+
+def test_web_search_fee_and_embeddings_are_counted(client, llm):
+    from app.llm.base import SEARCH_FEE_USD, MeteredLLM
+
+    w = make_world(client, llm)
+    with w.session() as s:
+        m = MeteredLLM(llm, s, w.user_id)
+        llm.handlers["web_search"] = lambda *a, **k: "x | y | z | d | https://example.com/jobs/1"
+        m.search_web("find jobs")
+        assert m.run_cost >= SEARCH_FEE_USD
+        before = m.run_cost
+        m.embed(["a" * 4000])
+        assert m.run_cost > before

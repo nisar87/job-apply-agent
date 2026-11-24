@@ -193,6 +193,43 @@ class SignupIn(BaseModel):
     remove: list[str] = Field(default_factory=list, max_length=200)
 
 
+@router.get("/operator/cost-report")
+def cost_report(days: int = Query(5, ge=1, le=30), _: uuid.UUID = Depends(_operator)):
+    """Where the model spend went: recorded cost per day and per run type, and how much work was done each day.
+    Read-only. (Recorded cost covers tokens only; see llm/base.py for what is added for searches and embeddings.)"""
+    from sqlalchemy import func
+
+    from app.models import Match, Run
+
+    since = datetime.now(UTC) - timedelta(days=days)
+    with system_session() as s:
+        day = func.date(Run.created_at)
+        runs = s.execute(select(day, Run.type, func.count(), func.sum(Run.cost_usd), func.sum(Run.steps))
+                         .where(Run.created_at >= since).group_by(day, Run.type).order_by(day.desc(), Run.type)).all()
+        usage = s.execute(select(UsageDaily.day, func.sum(UsageDaily.calls), func.sum(UsageDaily.input_tokens),
+                                 func.sum(UsageDaily.output_tokens), func.sum(UsageDaily.cost_usd))
+                          .where(UsageDaily.day >= since.date()).group_by(UsageDaily.day).order_by(UsageDaily.day.desc())).all()
+        audit_counts = s.execute(select(func.date(AuditLog.created_at), AuditLog.tool, func.count())
+                                 .where(AuditLog.created_at >= since).group_by(func.date(AuditLog.created_at), AuditLog.tool)
+                                 .order_by(func.date(AuditLog.created_at).desc(), func.count().desc())).all()
+        new_postings = s.execute(select(func.date(Posting.created_at), Posting.source, func.count())
+                                 .where(Posting.created_at >= since).group_by(func.date(Posting.created_at), Posting.source)
+                                 .order_by(func.date(Posting.created_at).desc(), func.count().desc())).all()
+        new_matches = s.execute(select(func.date(Match.created_at), Match.decision, func.count())
+                                .where(Match.created_at >= since).group_by(func.date(Match.created_at), Match.decision)
+                                .order_by(func.date(Match.created_at).desc())).all()
+        users = s.execute(select(func.count()).select_from(User)).scalar()
+    r = lambda v: round(float(v or 0), 3)  # noqa: E731
+    return {
+        "users": users,
+        "usage_by_day": [{"day": str(d), "calls": int(c or 0), "input_tokens": int(i or 0), "output_tokens": int(o or 0), "cost_usd": r(k)} for d, c, i, o, k in usage],
+        "runs": [{"day": str(d), "type": t, "runs": n, "cost_usd": r(c), "steps": int(st or 0)} for d, t, n, c, st in runs],
+        "work_done": [{"day": str(d), "what": t, "count": n} for d, t, n in audit_counts][:80],
+        "new_postings": [{"day": str(d), "source": src, "count": n} for d, src, n in new_postings][:60],
+        "new_matches": [{"day": str(d), "decision": dec, "count": n} for d, dec, n in new_matches],
+    }
+
+
 @router.post("/operator/tailor-test")
 def tailor_test(me: uuid.UUID = Depends(_operator)):
     """One real call to the tailoring service with the operator's own CV and a sample job. Nothing is saved or sent.

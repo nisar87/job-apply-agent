@@ -4,6 +4,7 @@ Users: add, check or remove their own Gemini key and set its daily limit.
 Admin: choose how keys work for everyone, set each user's access and limits, and read the log of
 web forms the agent could not fill."""
 
+import logging
 import re
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -222,10 +223,14 @@ def tailor_test(me: uuid.UUID = Depends(_operator)):
         result = client.tailor(body, f"test-{me.hex[:12]}-{int(started)}")
         pdf = client.pdf(result)
     except Exception as exc:  # noqa: BLE001 - the point is to report exactly what failed
-        return {"ok": False, "step": "service", "why": f"{type(exc).__name__}: {exc}"[:400],
-                "code": getattr(exc, "code", ""), "seconds": round(time.time() - started, 1)}
-    return {"ok": True, "seconds": round(time.time() - started, 1), "pdf_bytes": len(pdf),
-            "text_chars": len(result.get("text", "")), "status": result.get("status")}
+        out = {"ok": False, "step": "service", "why": f"{type(exc).__name__}: {exc}"[:400],
+               "code": getattr(exc, "code", ""), "seconds": round(time.time() - started, 1)}
+        logging.getLogger(__name__).warning("tailor-test result: %s", out)   # the page may time out first; the log keeps it
+        return out
+    out = {"ok": True, "seconds": round(time.time() - started, 1), "pdf_bytes": len(pdf),
+           "text_chars": len(result.get("text", "")), "status": result.get("status")}
+    logging.getLogger(__name__).warning("tailor-test result: %s", out)
+    return out
 
 
 @router.post("/operator/rewrite-unsent")

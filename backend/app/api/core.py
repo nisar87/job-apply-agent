@@ -215,6 +215,15 @@ def create_campaign(body: CampaignIn, user_id: uuid.UUID = Depends(current_user_
     return campaign
 
 
+class CampaignRemove(BaseModel):
+    ids: list[uuid.UUID] = Field(min_length=1, max_length=100)
+
+
+@router.post("/campaigns/remove")
+def remove_campaigns(body: CampaignRemove, user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
+    return {"removed": campaign_service.remove_campaigns(session, user_id, body.ids)}
+
+
 @router.patch("/campaigns/{campaign_id}", response_model=CampaignOut)
 def patch_campaign(campaign_id: uuid.UUID, body: CampaignPatch, session: Session = Depends(db, scope="function")):
     campaign = _own(session, Campaign, campaign_id)

@@ -5,7 +5,7 @@ import { useState } from "react";
 import CountryPicker from "@/components/CountryPicker";
 import Shell from "@/components/Shell";
 import { Empty, ErrorNote, errorText, useLoad } from "@/components/ui";
-import { api } from "@/lib/api";
+import { api, fmtDate } from "@/lib/api";
 import type { Campaign, CampaignConfig } from "@/lib/types";
 
 const list = (v: string) => v.split(",").map((s) => s.trim()).filter(Boolean);
@@ -69,7 +69,7 @@ function Editor({ campaign, onSaved }: { campaign: Campaign; onSaved: () => void
   }
 
   return (
-    <section className="mb-10 card p-5">
+    <section className="border-t border-rule p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <input className="field letter max-w-md text-xl" value={name} onChange={(e) => setName(e.target.value)} aria-label="Search name" />
         <div className="flex flex-wrap gap-2 text-sm">
@@ -151,13 +151,78 @@ function Editor({ campaign, onSaved }: { campaign: Campaign; onSaved: () => void
   );
 }
 
+const stateLabel = (state: string) => (state === "active" ? "Running" : state === "dry_run" ? "Dry run" : "Paused");
+
+function Row({ c, checked, onCheck, open, onOpen, onSaved }: {
+  c: Campaign; checked: boolean; onCheck: (v: boolean) => void; open: boolean; onOpen: () => void; onSaved: () => void;
+}) {
+  const cfg = c.config;
+  const where = cfg.countries.length ? `${cfg.countries.length} ${cfg.countries.length === 1 ? "country" : "countries"}` : "Anywhere";
+  const what = cfg.keywords.length ? cfg.keywords.slice(0, 4).join(", ") + (cfg.keywords.length > 4 ? ` +${cfg.keywords.length - 4}` : "") : "Skills from your CV";
+  return (
+    <div className={`card mb-3 overflow-hidden ${checked ? "ring-2 ring-ink" : ""}`}>
+      <div className="flex flex-wrap items-center gap-3 p-4">
+        <input type="checkbox" className="h-4 w-4" checked={checked} onChange={(e) => onCheck(e.target.checked)} aria-label={`Select ${c.name}`} />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-semibold">{c.name}</span>
+            <span className={`postmark ${c.state === "active" ? "text-sent" : ""}`}>{stateLabel(c.state)}</span>
+          </div>
+          <p className="mt-1 truncate text-sm text-slate">{what}</p>
+          <p className="mt-0.5 text-xs text-slate">{where} · up to {cfg.daily_quota} a day · score {cfg.match_threshold}+{c.created_at ? ` · started ${fmtDate(c.created_at)}` : ""}</p>
+        </div>
+        <button className="btn btn-quiet text-sm" onClick={onOpen}>{open ? "Close" : "Edit"}</button>
+      </div>
+      {open && <Editor campaign={c} onSaved={onSaved} />}
+    </div>
+  );
+}
+
 export default function Campaigns() {
   const { data, error, reload } = useLoad<Campaign[]>("/api/campaigns");
+  const [picked, setPicked] = useState<string[]>([]);
+  const [open, setOpen] = useState("");
+  const [confirm, setConfirm] = useState(false);
+  const [fail, setFail] = useState("");
+  const all = data || [];
+  const some = picked.length > 0;
+
+  async function remove() {
+    setFail("");
+    try {
+      await api("/api/campaigns/remove", { method: "POST", json: { ids: picked } });
+      setPicked([]);
+      setConfirm(false);
+      reload();
+    } catch (e) {
+      setFail(errorText(e));
+    }
+  }
+
   return (
-    <Shell title="My search" intro="What the agent looks for. Describe a new search and it replaces this one." actions={<Link className="btn" href="/setup">Describe a new search</Link>}>
-      <ErrorNote message={error} />
-      {data && data.length === 0 && <Empty>No search yet. Describe the jobs you want in the setup chat and the agent builds the search from it.</Empty>}
-      {(data || []).map((c) => <Editor key={c.id + c.state} campaign={c} onSaved={reload} />)}
+    <Shell title="My search" intro="What the agent looks for. Describe a new search, or select old ones to delete." actions={<Link className="btn" href="/setup">Describe a new search</Link>}>
+      <ErrorNote message={error || fail} />
+      {all.length === 0 && data && <Empty>No search yet. Describe the jobs you want and the agent builds the search from it.</Empty>}
+      {all.length > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-3 text-sm">
+          <label className="flex items-center gap-2">
+            <input type="checkbox" className="h-4 w-4" checked={picked.length === all.length} onChange={(e) => setPicked(e.target.checked ? all.map((c) => c.id) : [])} />
+            {some ? `${picked.length} selected` : `Select all (${all.length})`}
+          </label>
+          {some && !confirm && <button className="btn btn-quiet" onClick={() => setConfirm(true)}>Delete selected</button>}
+          {some && confirm && (
+            <span className="flex flex-wrap items-center gap-2">
+              Delete {picked.length} {picked.length === 1 ? "search" : "searches"}? They stop at once. Applications already sent stay in your history.
+              <button className="btn" onClick={remove}>Yes, delete</button>
+              <button className="btn btn-quiet" onClick={() => setConfirm(false)}>Keep</button>
+            </span>
+          )}
+        </div>
+      )}
+      {all.map((c) => (
+        <Row key={c.id} c={c} checked={picked.includes(c.id)} onCheck={(v) => setPicked((p) => (v ? [...p, c.id] : p.filter((x) => x !== c.id)))}
+          open={open === c.id} onOpen={() => setOpen(open === c.id ? "" : c.id)} onSaved={reload} />
+      ))}
     </Shell>
   );
 }

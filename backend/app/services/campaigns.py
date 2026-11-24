@@ -48,6 +48,8 @@ class SendWindow(BaseModel):
 
 
 class CampaignConfig(BaseModel):
+    # A removed search: kept (its sent applications still guard against writing to the same company twice) but hidden and paused.
+    archived: bool = False
     # What to look for
     keywords: list[str] = Field(default_factory=list)
     # Countries to apply within; empty means anywhere. A posting outside them is skipped, unless it is
@@ -137,7 +139,21 @@ def get_config(campaign: Campaign) -> CampaignConfig:
 
 
 def list_campaigns(session: Session, user_id: uuid.UUID) -> list[Campaign]:
-    return list(session.execute(select(Campaign).where(Campaign.user_id == user_id).order_by(Campaign.created_at)).scalars())
+    rows = session.execute(select(Campaign).where(Campaign.user_id == user_id).order_by(Campaign.created_at)).scalars()
+    return [c for c in rows if not (c.config or {}).get("archived")]
+
+
+def remove_campaigns(session: Session, user_id: uuid.UUID, ids: list[uuid.UUID]) -> int:
+    """Remove searches: paused at once and hidden. The history stays, so a company already written to is not written to again."""
+    removed = 0
+    for c in list_campaigns(session, user_id):
+        if c.id in ids:
+            c.state = "paused"
+            c.config = {**(c.config or {}), "archived": True}
+            audit.record(session, user_id=user_id, actor="user", tool="remove_campaign", entity_id=c.id, input={"name": c.name}, result={})
+            removed += 1
+    session.flush()
+    return removed
 
 
 def _check_user_total(session: Session, user_id: uuid.UUID, config: CampaignConfig, exclude: uuid.UUID | None) -> None:

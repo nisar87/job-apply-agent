@@ -160,3 +160,15 @@ def test_cv_list_names_the_file_in_use(client, llm):
     w = make_world(client, llm)
     cvs = client.get("/api/cvs", headers=w.headers).json()
     assert cvs and cvs[0]["file_name"] and cvs[0]["uploaded_at"]
+
+
+def test_several_searches_can_be_removed_at_once(client, llm):
+    w = make_world(client, llm)
+    extra = [client.post("/api/campaigns", headers=w.headers, json={"name": f"Extra {i}", "config": {"daily_quota": 3}}).json()["id"] for i in range(2)]
+    assert len(client.get("/api/campaigns", headers=w.headers).json()) == 3
+    r = client.post("/api/campaigns/remove", headers=w.headers, json={"ids": extra})
+    assert r.status_code == 200 and r.json() == {"removed": 2}
+    left = client.get("/api/campaigns", headers=w.headers).json()
+    assert [c["id"] for c in left] == [str(w.campaign_id)]
+    # Removing again does nothing, and nothing is deleted for good (history stays).
+    assert client.post("/api/campaigns/remove", headers=w.headers, json={"ids": extra}).json() == {"removed": 0}

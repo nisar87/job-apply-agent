@@ -47,6 +47,11 @@ def main() -> int:
             page.locator('input[type="password"]').nth(1).fill("correct horse battery")
             page.get_by_role("button", name="Create account").click()
             page.wait_for_url("**/setup")
+            # 1b. A new person has no key: the page asks for their own first, and nothing runs without it.
+            expect(page.get_by_text("First, add your own AI key")).to_be_visible()
+            page.get_by_label("Gemini key").fill("AIza" + "x" * 30)
+            page.locator("form", has=page.get_by_label("Gemini key")).get_by_role("button", name="Save").click()
+            expect(page.get_by_text("First, add your own AI key")).to_be_hidden()
             expect(page.get_by_label("Describe what you want")).to_be_visible()
 
             # 2. Connect the practice mailbox (the demo has no real Gmail) and the report address.
@@ -63,6 +68,10 @@ def main() -> int:
                 f.write(CV)
             page.set_input_files('input[type="file"]', f.name)
             page.get_by_label("Describe what you want").fill("Apply to 5 remote python backend jobs a day in Austria, not older than 1 week")
+            if os.environ.get("DEBUG_E2E"):
+                print(page.evaluate("""async () => { const h = {Authorization: 'Bearer ' + localStorage.getItem('jaa_token')};
+                  const g = async (u) => JSON.stringify(await (await fetch('%s' + u, {headers: h})).json());
+                  return [await g('/api/setup/status'), await g('/api/account/model-key')].join(' | ') }""" % API))
             page.get_by_role("button", name="Start").click()
             page.wait_for_url(WEB + "/")
             expect(page.get_by_text("Your agent is working.")).to_be_visible()
@@ -74,10 +83,25 @@ def main() -> int:
             r = page.request.patch(f"{API}/api/campaigns/{campaign['id']}", headers={"Authorization": f"Bearer {token}"}, data={"config": config})
             assert r.ok, r.text()
             page.goto(f"{WEB}/campaigns")
+            page.get_by_role("button", name="Edit").first.click()
             page.get_by_role("button", name="Look for jobs now").click()
             expect(page.get_by_role("button", name="Look for jobs now")).to_be_enabled(timeout=30000)
             page.get_by_role("button", name="Write drafts now").click()
             expect(page.get_by_role("button", name="Write drafts now")).to_be_enabled(timeout=30000)
+
+            # 6b. Several old searches can be deleted at once; the real one stays.
+            for n in ("Old one", "Old two"):
+                r = page.request.post(f"{API}/api/campaigns", headers={"Authorization": f"Bearer {token}"}, data={"name": n, "config": {"daily_quota": 2}})
+                assert r.ok, r.text()
+            page.goto(f"{WEB}/campaigns")
+            expect(page.get_by_text("Old two")).to_be_visible()
+            page.get_by_label("Select Old one").check()
+            page.get_by_label("Select Old two").check()
+            expect(page.get_by_text("2 selected")).to_be_visible()
+            page.get_by_role("button", name="Delete selected").click()
+            page.get_by_role("button", name="Yes, delete").click()
+            expect(page.get_by_text("Old two")).to_have_count(0, timeout=10000)
+            expect(page.get_by_label(f"Select {campaign['name']}")).to_be_visible()
 
             # 7. In full-auto mode nothing waits for approval: the written applications are queued.
             page.goto(f"{WEB}/applications?tab=applied")

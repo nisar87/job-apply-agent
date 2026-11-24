@@ -37,7 +37,8 @@ class GeminiClient:
             return 0, 0
         # Reasoning tokens are billed as output.
         out = int(usage.candidates_token_count or 0) + int(getattr(usage, "thoughts_token_count", 0) or 0)
-        return int(usage.prompt_token_count or 0), out
+        # With Google Search the pages the search brought back are billed as input too (tool_use_prompt_token_count).
+        return int(usage.prompt_token_count or 0) + int(getattr(usage, "tool_use_prompt_token_count", 0) or 0), out
 
     def _call(self, fn):
         """Run one API call, retrying the errors that pass on their own (rate limit, overload, network)."""

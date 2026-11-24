@@ -184,8 +184,9 @@ def test_cv_upload_survives_embedding_failure(client, llm, monkeypatch):
     r = client.post("/api/cvs", headers=w.headers, data={"label": "New"}, files={"file": ("cv.txt", b"Senior engineer with 15 years of .NET experience. " * 20, "text/plain")})
     assert r.status_code == 201, r.text
     with w.session() as s:
-        from app.models import CVVersion
         from sqlalchemy import select
+
+        from app.models import CVVersion
         assert any(v.embedding is None for v in s.execute(select(CVVersion)).scalars())
 
 

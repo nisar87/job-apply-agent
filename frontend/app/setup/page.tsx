@@ -58,9 +58,9 @@ export default function Setup() {
       }
       setStep("Starting your search…");
       const config = { ...plan.config, daily_quota: Math.min(plan.config.daily_quota || 10, 10) };
-      // A new description replaces the old searches, so two never run side by side.
+      // A new description replaces the old searches: they are removed, so they neither run nor pile up.
       const old = await api<{ id: string; state: string }[]>("/api/campaigns");
-      for (const c of old) if (c.state !== "paused") await api(`/api/campaigns/${c.id}`, { method: "PATCH", json: { state: "paused" } });
+      if (old.length) await api("/api/campaigns/remove", { method: "POST", json: { ids: old.map((c) => c.id) } });
       await api("/api/campaigns", { method: "POST", json: { name: plan.campaign_name, config, preferences: plan.preferences, state: "active" } });
       router.push("/");
     } catch (err) {

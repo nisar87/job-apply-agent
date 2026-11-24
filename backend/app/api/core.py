@@ -43,7 +43,16 @@ def _split(value: str) -> list[str]:
 
 @router.get("/cvs", response_model=list[CVOut])
 def list_cvs(user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
-    return cv_service.list_cvs(session, user_id)
+    from app.models import CVVersion
+
+    out = []
+    for cv in cv_service.list_cvs(session, user_id):
+        item = CVOut.model_validate(cv)
+        version = session.get(CVVersion, cv.current_version_id) if cv.current_version_id else None
+        if version is not None:
+            item.file_name, item.uploaded_at = version.file_name, version.created_at
+        out.append(item)
+    return out
 
 
 @router.post("/cvs", response_model=CVOut, status_code=201)

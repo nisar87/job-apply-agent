@@ -20,6 +20,8 @@ class CVOut(Out):
     active: bool
     current_version_id: uuid.UUID | None
     created_at: datetime
+    file_name: str | None = None        # the file the agent sends today
+    uploaded_at: datetime | None = None
 
 
 class CampaignOut(Out):

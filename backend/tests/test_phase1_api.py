@@ -152,3 +152,11 @@ def test_unremovable_block(client, llm):
         s.add(Block(user_id=w.user_id, type="domain", value="optout.at", reason="asked not to be contacted", removable=False))
     block = client.get("/api/blocks", headers=w.headers).json()[0]
     assert client.delete(f"/api/blocks/{block['id']}", headers=w.headers).status_code == 409
+
+
+def test_cv_list_names_the_file_in_use(client, llm):
+    from tests.helpers import make_world
+
+    w = make_world(client, llm)
+    cvs = client.get("/api/cvs", headers=w.headers).json()
+    assert cvs and cvs[0]["file_name"] and cvs[0]["uploaded_at"]

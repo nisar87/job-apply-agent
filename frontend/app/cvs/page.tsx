@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Shell from "@/components/Shell";
 import { ErrorNote, errorText, useLoad } from "@/components/ui";
-import { api } from "@/lib/api";
+import { api, fmtDate } from "@/lib/api";
 import type { CV } from "@/lib/types";
 
 const FACTS: { key: string; label: string; hint?: string }[] = [
@@ -35,6 +35,20 @@ function CvRow({ cv, onChange }: { cv: CV; onChange: () => void }) {
   return (
     <li className="card p-4">
       <ErrorNote message={error} />
+      <p className="mb-3 text-sm">
+        Sent with applications: <strong>{cv.file_name || "no file"}</strong>
+        {cv.uploaded_at && <span className="text-slate"> (uploaded {fmtDate(cv.uploaded_at)})</span>}
+      </p>
+      <form className="mb-3 flex flex-wrap items-end gap-2 text-sm" onSubmit={async (e) => {
+        e.preventDefault();
+        const form = new FormData(e.currentTarget);
+        form.set("label", cv.label);
+        form.set("cv_id", cv.id);
+        try { await api("/api/cvs", { method: "POST", body: form }); onChange(); } catch (err) { setError(errorText(err)); }
+      }}>
+        <label>Replace the file with a new one<input className="field mt-1" type="file" name="file" accept=".pdf,.docx,.txt" required /></label>
+        <button className="btn btn-quiet">Replace CV</button>
+      </form>
       <div className="grid gap-3 md:grid-cols-[12rem_1fr_auto] md:items-end">
         <label className="text-sm">Label<input className="field mt-1" value={label} onChange={(e) => setLabel(e.target.value)} /></label>
         <label className="text-sm">Use this CV when the posting mentions

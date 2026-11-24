@@ -7,6 +7,8 @@ import uuid
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from google.genai import errors as genai_errors
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
@@ -23,7 +25,25 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 for noisy in ("httpx", "httpx2", "httpcore", "google_genai.models"):
     logging.getLogger(noisy).setLevel(logging.WARNING)
 
+log = logging.getLogger(__name__)
 app = FastAPI(title="Job Apply Agent", version="0.1.0")
+
+
+@app.exception_handler(genai_errors.APIError)
+def gemini_refused(request, exc: genai_errors.APIError):
+    """Say what Gemini said in plain words instead of a bare 500."""
+    code = int(getattr(exc, "code", 0) or 0)
+    log.warning("Gemini refused a call (%s): %s", code, str(exc)[:300])
+    if code in (402, 429) or "RESOURCE_EXHAUSTED" in str(exc):
+        text, status = ("The Gemini key has no credit left or has reached its limit. Add credit in Google AI Studio "
+                        "(ai.studio/projects), or save a different key under Account and keys, then try again."), 402
+    elif code in (400, 401, 403) and ("API key" in str(exc) or code in (401, 403)):
+        text, status = "Google did not accept the Gemini key. Check it under Account and keys.", 400
+    else:
+        text, status = "Gemini is not answering right now. Try again in a minute.", 503
+    return JSONResponse({"detail": text}, status_code=status)
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[get_settings().frontend_url],

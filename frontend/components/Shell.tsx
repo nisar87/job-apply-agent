@@ -1,5 +1,6 @@
 "use client";
 
+import { GlobalProgress } from "@/components/Progress";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -85,6 +86,7 @@ export default function Shell({ title, intro, children, actions }: { title: stri
           <button className="py-2 underline md:mt-1 md:py-0" onClick={signOut}>Sign out</button>
         </div>
       </nav>
+      <GlobalProgress />
       <main className="min-w-0 flex-1 px-4 py-6 md:px-8 md:py-8">
         {me && me.environment !== "production" && (
           <p className={`mb-4 rounded-lg border bg-sheet px-3 py-2 text-sm ${me.sends_for_real ? "border-problem" : "border-rule"}`} role="status">

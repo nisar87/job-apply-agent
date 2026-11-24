@@ -3,6 +3,7 @@
 import logging
 import re
 import threading
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlencode
@@ -297,6 +298,27 @@ def run_now(campaign_id: uuid.UUID, kind: str = "prepare", user_id: uuid.UUID = 
             return agent_runs.dispatch_run(session, user_id)
     except LockBusy as exc:
         raise HTTPException(409, "A run of this kind is already in progress") from exc
+
+
+@router.get("/campaigns/{campaign_id}/run/wait")
+def run_wait(campaign_id: uuid.UUID, kind: str = "prepare", first: bool = False, user_id: uuid.UUID = Depends(current_user_id), session: Session = Depends(db, scope="function")):
+    """Holds the request open (up to 45 seconds) while a manual run works. The server is billed for CPU only while a
+    request is open, so the page keeps one open until the run is over; it also tells the page when to stop."""
+    _own(session, Campaign, campaign_id)
+    if kind not in ("discovery", "prepare", "dispatch"):
+        raise HTTPException(422, "kind must be discovery, prepare or dispatch")
+    session.commit()  # release the connection while waiting
+    deadline = time.monotonic() + 45
+    if first:  # the run takes its lock a moment after it was started
+        for _ in range(6):
+            if get_redis().get(f"lock:{kind}:{user_id}"):
+                break
+            time.sleep(0.5)
+    while time.monotonic() < deadline:
+        if not get_redis().get(f"lock:{kind}:{user_id}"):
+            return {"running": False}
+        time.sleep(1)
+    return {"running": True}
 
 
 def _run_in_background(user_id: uuid.UUID, campaign_id: uuid.UUID, kind: str) -> None:

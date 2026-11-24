@@ -1,5 +1,6 @@
 "use client";
 
+import { Progress } from "@/components/Progress";
 import { useEffect, useState } from "react";
 import { ErrorNote, errorText, useLoad } from "@/components/ui";
 import { API_BASE, api, getToken } from "@/lib/api";
@@ -48,6 +49,7 @@ export default function FormReview({ id, status, onChange }: { id: string; statu
         <p className="mt-1 max-w-prose text-slate">The agent can fill it in from your CV and fact sheet, then show you the result. Nothing is submitted until you approve.</p>
         <ErrorNote message={error} />
         <button className="btn mt-3" disabled={busy} onClick={() => post("prepare")}>{busy ? "Filling in the form…" : "Fill in the form for me"}</button>
+        {busy && <Progress label="Filling in the form…" hint="The agent opens the page and fills it from your CV. This takes up to a minute." />}
       </section>
     );
   }
@@ -75,6 +77,9 @@ export default function FormReview({ id, status, onChange }: { id: string; statu
       {shot && <img src={shot} alt="Screenshot of the filled application form" className="mt-4 max-h-[32rem] w-full border border-rule object-contain object-top" />}
       {status === "form_ready" && (
         <button className="btn mt-4" disabled={busy} onClick={() => post("approve")}>{busy ? "Submitting…" : "Approve and submit"}</button>
+      )}
+      {status === "form_ready" && busy && (
+        <Progress label="Submitting the form…" hint="Do not close this page until it finishes." />
       )}
     </section>
   );

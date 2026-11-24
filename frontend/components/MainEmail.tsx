@@ -1,5 +1,6 @@
 "use client";
 
+import { Progress } from "@/components/Progress";
 import { useState } from "react";
 import { ErrorNote, errorText, useLoad } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -20,6 +21,7 @@ export default function MainEmail({ onSaved }: { onSaved?: () => void } = {}) {
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
   const [preview, setPreview] = useState<Preview | null>(null);
+  const [working, setWorking] = useState(false);
 
   async function save(json: Partial<Me>, done = "Saved") {
     setError("");
@@ -39,10 +41,13 @@ export default function MainEmail({ onSaved }: { onSaved?: () => void } = {}) {
   async function run(fn: () => Promise<void>) {
     setError("");
     setNote("");
+    setWorking(true);
     try {
       await fn();
     } catch (e) {
       setError(errorText(e));
+    } finally {
+      setWorking(false);
     }
   }
 
@@ -99,6 +104,7 @@ export default function MainEmail({ onSaved }: { onSaved?: () => void } = {}) {
         })}>Email it to me now</button>
         {note && <span className="text-sent">{note}</span>}
       </p>
+      {working && <Progress label="Working…" />}
       {preview && (
         <div className="mt-3 card p-3 text-sm">
           <p className="text-xs text-slate">To {preview.to} · {preview.subject}</p>

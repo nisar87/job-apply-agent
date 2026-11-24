@@ -1,5 +1,6 @@
 "use client";
 
+import { Progress } from "@/components/Progress";
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import FormReview from "@/components/FormReview";
@@ -90,6 +91,7 @@ export default function ApplicationPage() {
                     }
                   }}>Never this company</button>
                 </div>
+                {busy && <Progress label="Working on it…" hint="Approving runs the safety checks and queues the email." />}
               </div>
             ) : (
               <article className="letter mt-2 max-w-prose whitespace-pre-wrap card p-5 leading-7">

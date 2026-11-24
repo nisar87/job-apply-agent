@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import CountryPicker from "@/components/CountryPicker";
+import { Progress } from "@/components/Progress";
 import Shell from "@/components/Shell";
 import { Empty, ErrorNote, errorText, useLoad } from "@/components/ui";
 import { api, fmtDate } from "@/lib/api";
@@ -57,9 +58,19 @@ function Editor({ campaign, onSaved }: { campaign: Campaign; onSaved: () => void
   async function run(kind: string) {
     setRunning(kind);
     setError("");
+    setNote("");
     try {
       const out = await api<{ started?: boolean }>(`/api/campaigns/${campaign.id}/run?kind=${kind}`, { method: "POST" });
-      if (out?.started) setNote(kind === "discovery" ? "Looking for jobs. New postings appear in a few minutes." : "Writing drafts. They appear under Drafts in a few minutes.");
+      if (out?.started) {
+        // Each wait call stays open on the server while the run works, then reports whether it is still going.
+        let first = true;
+        for (let i = 0; i < 80; i++) {
+          const w = await api<{ running: boolean }>(`/api/campaigns/${campaign.id}/run/wait?kind=${kind}${first ? "&first=true" : ""}`);
+          first = false;
+          if (!w.running) break;
+        }
+        setNote(kind === "discovery" ? "Done looking. New postings are in My search results and Applications." : "Done writing. The drafts are under Drafts.");
+      }
       onSaved();
     } catch (e) {
       setError(errorText(e));
@@ -141,12 +152,16 @@ function Editor({ campaign, onSaved }: { campaign: Campaign; onSaved: () => void
       <div className="mt-6 flex flex-wrap items-center gap-3">
         <button className="btn" onClick={() => save()}>Save changes</button>
         {saved && <span className="text-sm text-sent">Saved</span>}
-        {note && <span className="text-sm text-slate">{note}</span>}
+        {note && !running && <span className="text-sm text-slate">{note}</span>}
         <span className="ml-auto flex flex-wrap gap-2">
           <button className="btn btn-quiet" disabled={!!running} onClick={() => run("discovery")}>{running === "discovery" ? "Looking…" : "Look for jobs now"}</button>
           <button className="btn btn-quiet" disabled={!!running} onClick={() => run("prepare")}>{running === "prepare" ? "Writing…" : "Write drafts now"}</button>
         </span>
       </div>
+      {running && (
+        <Progress label={running === "discovery" ? "Looking for jobs that fit…" : "Writing your drafts…"}
+          hint="This takes a few minutes. Keep this page open until it finishes." />
+      )}
     </section>
   );
 }

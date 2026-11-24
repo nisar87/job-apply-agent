@@ -47,7 +47,33 @@ export class ApiError extends Error {
   }
 }
 
+// Requests in flight, so the page can show that something is happening while a slow one runs.
+type Pending = { id: number; since: number };
+let pending: Pending[] = [];
+let nextId = 1;
+const watchers = new Set<() => void>();
+export function watchPending(fn: () => void): () => void {
+  watchers.add(fn);
+  return () => { watchers.delete(fn); };
+}
+export const pendingSince = (): number | null => (pending.length ? Math.min(...pending.map((p) => p.since)) : null);
+const track = (on: Pending | null, off?: Pending) => {
+  if (on) pending = [...pending, on];
+  if (off) pending = pending.filter((p) => p.id !== off.id);
+  watchers.forEach((fn) => fn());
+};
+
 export async function api<T = unknown>(path: string, options: RequestInit & { json?: unknown } = {}): Promise<T> {
+  const mark: Pending = { id: nextId++, since: Date.now() };
+  track(mark);
+  try {
+    return await call<T>(path, options);
+  } finally {
+    track(null, mark);
+  }
+}
+
+async function call<T>(path: string, options: RequestInit & { json?: unknown }): Promise<T> {
   const headers: Record<string, string> = { ...(options.headers as Record<string, string>) };
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;

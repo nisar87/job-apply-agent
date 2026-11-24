@@ -172,3 +172,23 @@ def test_several_searches_can_be_removed_at_once(client, llm):
     assert [c["id"] for c in left] == [str(w.campaign_id)]
     # Removing again does nothing, and nothing is deleted for good (history stays).
     assert client.post("/api/campaigns/remove", headers=w.headers, json={"ids": extra}).json() == {"removed": 0}
+
+
+def test_empty_gemini_credit_is_explained_not_a_500(client, llm, monkeypatch):
+    from google.genai import errors as genai_errors
+
+    w = make_world(client, llm)
+
+    def boom(*a, **k):
+        raise genai_errors.ClientError(402, {"error": {"code": 402, "message": "Your prepayment credits are depleted.", "status": "RESOURCE_EXHAUSTED"}})
+
+    monkeypatch.setattr(type(llm), "embed", boom, raising=False)
+    r = client.post("/api/cvs", headers=w.headers, data={"label": "New"}, files={"file": ("cv.txt", b"Senior engineer with 15 years of .NET experience. " * 20, "text/plain")})
+    assert r.status_code == 402 and "no credit left" in r.json()["detail"]
+
+
+def test_run_wait_reports_when_no_run_is_going(client, llm):
+    w = make_world(client, llm)
+    r = client.get(f"/api/campaigns/{w.campaign_id}/run/wait?kind=prepare", headers=w.headers)
+    assert r.status_code == 200 and r.json() == {"running": False}
+    assert client.get(f"/api/campaigns/{w.campaign_id}/run/wait?kind=nonsense", headers=w.headers).status_code == 422

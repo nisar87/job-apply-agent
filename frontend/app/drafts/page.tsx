@@ -1,5 +1,6 @@
 "use client";
 
+import { Progress } from "@/components/Progress";
 import Link from "next/link";
 import { useState } from "react";
 import Shell from "@/components/Shell";
@@ -61,6 +62,7 @@ function DraftCard({ a, onDone }: { a: Application; onDone: () => void }) {
         <Link className="btn btn-quiet" href={`/applications/${a.id}`}>Open and edit</Link>
         <button className="btn btn-quiet" disabled={busy} onClick={() => act("reject", { reason: "rejected by you" })}>Reject</button>
       </div>
+      {busy && <Progress label="Working on it…" hint="Sending goes through the safety checks first, so it can take a few seconds." />}
     </li>
   );
 }
@@ -102,6 +104,7 @@ function OnSiteCard({ a, onDone }: { a: Application; onDone: () => void }) {
         <button className="btn btn-quiet" disabled={!!busy} onClick={() => act("applied", "applied")}>I applied</button>
         <button className="btn btn-quiet" disabled={!!busy} onClick={() => act("skip", "skip")}>Skip</button>
       </div>
+      {busy === "fill" && <Progress label="Filling in the employer's form…" hint="The agent opens the page and fills it from your CV. This takes up to a minute." />}
     </li>
   );
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { Progress } from "@/components/Progress";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import JobGmail from "@/components/JobGmail";
@@ -24,6 +25,7 @@ export default function Setup() {
   const [answer, setAnswer] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [step, setStep] = useState("");
 
   const hasCv = !!(cvs.data || []).some((c) => c.active) || !!file;
   const keyReady = !!key.data && key.data.source !== "none";
@@ -36,6 +38,7 @@ export default function Setup() {
     setAnswer("");
     try {
       if (file) {
+        setStep("Reading your CV…");
         const form = new FormData();
         form.set("file", file);
         form.set("label", "My CV");
@@ -46,12 +49,14 @@ export default function Setup() {
         cvs.reload();
         status.reload();
       }
+      setStep("Planning your search from your CV and your words…");
       const wish = text.trim() || "Find jobs that fit my CV and level. Remote or with relocation, anywhere in the world.";
       const plan = await api<Reply>("/api/setup/turn", { method: "POST", json: { history: [{ role: "user", text: wish }] } });
       if (plan.needs?.length) {
         setAnswer(plan.reply);
         return;
       }
+      setStep("Starting your search…");
       const config = { ...plan.config, daily_quota: Math.min(plan.config.daily_quota || 10, 10) };
       // A new description replaces the old searches, so two never run side by side.
       const old = await api<{ id: string; state: string }[]>("/api/campaigns");
@@ -62,6 +67,7 @@ export default function Setup() {
       setError(errorText(err));
     } finally {
       setBusy(false);
+      setStep("");
     }
   }
 
@@ -78,6 +84,7 @@ export default function Setup() {
         <label className="sr-only" htmlFor="wish">Describe what you want</label>
         <textarea id="wish" className="field min-h-56 w-full text-base" value={text} onChange={(e) => setText(e.target.value)}
           placeholder="Describe what you want, like you would tell a person. For example: remote or relocation jobs in all of Europe, Canada and the US, Austria first, never Pakistan, 5 to 8 a day, nothing older than 20 days, same company again only after 15 days, read my replies." />
+        {busy && step && <Progress label={step} hint="Reading a CV and planning takes up to a minute. Please stay on this page." />}
         {answer && <p className="mt-3 border-l-4 border-rule bg-sheet px-3 py-2 text-sm">{answer}</p>}
         <div className="mt-3 flex flex-wrap items-center gap-4">
           {!(cvs.data || []).some((c) => c.active) && (

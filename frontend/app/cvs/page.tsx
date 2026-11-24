@@ -1,5 +1,6 @@
 "use client";
 
+import { Progress } from "@/components/Progress";
 import { useState } from "react";
 import Shell from "@/components/Shell";
 import { ErrorNote, errorText, useLoad } from "@/components/ui";
@@ -24,6 +25,7 @@ function CvRow({ cv, onChange }: { cv: CV; onChange: () => void }) {
   const [keywords, setKeywords] = useState(cv.keywords.join(", "));
   const [label, setLabel] = useState(cv.label);
   const [error, setError] = useState("");
+  const [replacing, setReplacing] = useState(false);
   async function patch(json: unknown) {
     try {
       await api(`/api/cvs/${cv.id}`, { method: "PATCH", json });
@@ -44,11 +46,14 @@ function CvRow({ cv, onChange }: { cv: CV; onChange: () => void }) {
         const form = new FormData(e.currentTarget);
         form.set("label", cv.label);
         form.set("cv_id", cv.id);
-        try { await api("/api/cvs", { method: "POST", body: form }); onChange(); } catch (err) { setError(errorText(err)); }
+        setError("");
+        setReplacing(true);
+        try { await api("/api/cvs", { method: "POST", body: form }); onChange(); } catch (err) { setError(errorText(err)); } finally { setReplacing(false); }
       }}>
         <label>Replace the file with a new one<input className="field mt-1" type="file" name="file" accept=".pdf,.docx,.txt" required /></label>
-        <button className="btn btn-quiet">Replace CV</button>
+        <button className="btn btn-quiet" disabled={replacing}>{replacing ? "Reading…" : "Replace CV"}</button>
       </form>
+      {replacing && <Progress label="Reading your new CV…" hint="The agent reads it once and saves what it learns. This takes up to a minute." />}
       <div className="grid gap-3 md:grid-cols-[12rem_1fr_auto] md:items-end">
         <label className="text-sm">Label<input className="field mt-1" value={label} onChange={(e) => setLabel(e.target.value)} /></label>
         <label className="text-sm">Use this CV when the posting mentions
@@ -115,6 +120,7 @@ export default function Cvs() {
           <label className="text-sm">Label<input className="field mt-1" name="label" placeholder="Backend" required /></label>
           <label className="text-sm">Keywords<input className="field mt-1" name="keywords" placeholder="backend, python" /></label>
           <button className="btn" disabled={busy}>{busy ? "Reading…" : "Upload CV"}</button>
+          {busy && <div className="md:col-span-4"><Progress label="Reading your CV…" hint="The agent reads it once and saves what it learns. This takes up to a minute." /></div>}
         </form>
       )}
       <h2 className="mt-10 text-xl">Fact sheet</h2>

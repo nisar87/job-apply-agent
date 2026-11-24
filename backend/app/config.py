@@ -89,6 +89,9 @@ class Settings(BaseSettings):
     agent_reply_any_time: bool = False
     # Run "Look for jobs now" and "Write drafts now" after the response (behind a proxy with a short request limit).
     manual_runs_in_background: bool = False
+    # The job harvest starts in a thread of the tick. With CPU billed per request that thread would stall, so
+    # production lets its own scheduled request run it instead.
+    harvest_in_thread: bool = True
     # Shared secret Cloud Scheduler sends to /api/system/run/{job} when no Celery worker runs.
     scheduler_token: str = ""
 

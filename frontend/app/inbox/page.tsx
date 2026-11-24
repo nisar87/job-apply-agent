@@ -1,5 +1,6 @@
 "use client";
 
+import { Progress } from "@/components/Progress";
 import Link from "next/link";
 import { useState } from "react";
 import Shell from "@/components/Shell";
@@ -78,6 +79,7 @@ export default function Inbox() {
   return (
     <Shell title="Replies" intro="Employer replies that need you. Everything routine is answered by the agent." actions={<button className="btn btn-quiet" disabled={syncing} onClick={sync}>{syncing ? "Checking…" : "Check for replies now"}</button>}>
       <ErrorNote message={escs.error} />
+      {syncing && <Progress label="Checking your mailbox for replies…" hint="Reading new mail and answering what the agent can. This takes up to a minute." />}
       {escs.data && escs.data.length === 0 && <Empty>No reply is waiting for you. Interview invitations, offers and questions the agent cannot answer appear here.</Empty>}
       <ul className="space-y-6">{(escs.data || []).map((e) => <Item key={e.id} esc={e} onDone={escs.reload} />)}</ul>
       {other.length > 0 && (

@@ -11,6 +11,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import func, select
 
 from app.agent import runs as agent_runs
+from app.config import get_settings
 from app.connectors.fetcher import Fetcher
 from app.db import system_session, user_session
 from app.llm import SpendCapExceeded
@@ -125,7 +126,8 @@ def tick(now: datetime | None = None) -> dict:
     from app.services import harvest
 
     # The job harvester runs every two hours in its own thread, so this tick is not held up (see harvest.py).
-    summary["harvest_started"] = harvest.start_if_due(now)
+    if get_settings().harvest_in_thread:
+        summary["harvest_started"] = harvest.start_if_due(now)
     # One queued job per user: a slow or failing user never delays the others (roadmap phase 6). With a worker
     # the jobs run in parallel across worker processes; inline (development, tests) they run one after another.
     from app.tasks import dispatch

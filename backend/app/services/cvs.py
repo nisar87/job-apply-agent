@@ -1,6 +1,7 @@
 """CV intake, structured profiles and the fact sheet (master document, section 8)."""
 
 import io
+import logging
 import re
 import uuid
 
@@ -91,6 +92,8 @@ LANGUAGE_CODES = {
     "spanish": "es", "italian": "it", "dutch": "nl", "portuguese": "pt", "polish": "pl", "turkish": "tr",
     "russian": "ru", "chinese": "zh", "japanese": "ja", "punjabi": "pa", "pashto": "ps",
 }
+
+log = logging.getLogger(__name__)
 
 
 def work_language_codes(profile: dict) -> list[str]:
@@ -249,6 +252,22 @@ def _set_default(session: Session, user_id: uuid.UUID, cv: CV) -> None:
         other.is_default = other.id == cv.id
 
 
+def embed_or_none(llm, text: str) -> list[float] | None:
+    """The CV's fingerprint for pre-ranking jobs. Only Gemini makes it; when Gemini cannot (no credit, outage) the CV is
+    still saved and read, and the fingerprint is added the next time jobs are ranked."""
+    try:
+        return llm.embed([text])[0]
+    except Exception as exc:  # noqa: BLE001 - never lose an upload over this
+        log.warning("CV saved without its fingerprint (%s)", type(exc).__name__)
+        return None
+
+
+def fill_missing_embeddings(session: Session, llm, versions: list) -> None:
+    for v in versions:
+        if v.embedding is None:
+            v.embedding = embed_or_none(llm, profile_text(v.profile) or (v.extracted_text or "")[:8000])
+
+
 def upload_cv(
     session: Session, llm: LLMClient, user_id: uuid.UUID, *, file_name: str, data: bytes, label: str,
     target_roles: list[str] | None = None, keywords: list[str] | None = None, language: str = "en",
@@ -274,7 +293,7 @@ def upload_cv(
     profile = parse_profile(llm, text)
     version = CVVersion(
         user_id=user_id, cv_id=cv.id, file_key=key, file_name=file_name, file_hash=digest,
-        extracted_text=text, profile=profile, embedding=llm.embed([profile_text(profile) or text[:8000]])[0],
+        extracted_text=text, profile=profile, embedding=embed_or_none(llm, profile_text(profile) or text[:8000]),
     )
     session.add(version)
     session.flush()
@@ -308,7 +327,7 @@ def update_cv(
         old = current_version(session, cv)
         version = CVVersion(
             user_id=cv.user_id, cv_id=cv.id, file_key=old.file_key, file_name=old.file_name, file_hash=old.file_hash,
-            extracted_text=old.extracted_text, profile=profile, embedding=llm.embed([profile_text(profile)])[0],
+            extracted_text=old.extracted_text, profile=profile, embedding=embed_or_none(llm, profile_text(profile)),
         )
         session.add(version)
         session.flush()

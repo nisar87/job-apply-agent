@@ -14,7 +14,7 @@ export type Match = {
 };
 
 export type Campaign = {
-  id: string; name: string; state: string; approval_mode: string; auto_above_score: number;
+  id: string; name: string; state: string; approval_mode: string; auto_above_score: number; created_at?: string;
   config: CampaignConfig;
 };
 

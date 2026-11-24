@@ -87,14 +87,14 @@ export default function Setup() {
           )}
           <button className="btn ml-auto" disabled={busy || !hasCv || !mailReady || !keyReady}>{busy ? "Working…" : "Start"}</button>
         </div>
-        {!mailReady && status.data && (
-          <div className="mt-6 border-t border-rule pt-4">
-            <p className="text-sm text-slate">One thing first: connect the Gmail the agent applies from, and your main email for reports.</p>
-            {!status.data.mail_connected && <JobGmail onConnected={status.reload} />}
-            <div className="mt-4"><MainEmail onSaved={status.reload} /></div>
-          </div>
-        )}
       </form>
+      {!mailReady && status.data && (
+        <div className="mt-6 max-w-2xl border-t border-rule pt-4">
+          <p className="text-sm text-slate">One thing first: connect the Gmail the agent applies from, and your main email for reports.</p>
+          {!status.data.mail_connected && <JobGmail onConnected={status.reload} />}
+          <div className="mt-4"><MainEmail onSaved={status.reload} /></div>
+        </div>
+      )}
     </Shell>
   );
 }

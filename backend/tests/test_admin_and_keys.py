@@ -142,3 +142,9 @@ def test_the_interest_question_gets_the_cover_note(client, llm):
     value = forms.standard_answer(field, user=user, profile={}, facts={}, config=CampaignConfig(), country=None,
                                   cover_text="Dear team")
     assert value == "Dear team"
+
+
+def test_tailor_test_reports_when_the_service_is_not_set_up(client, llm, admin_env):
+    w = make_world(client, llm, email="a@example.com")
+    r = client.post("/api/operator/tailor-test", headers=w.headers)
+    assert r.status_code == 200 and r.json()["ok"] is False

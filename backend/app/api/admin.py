@@ -192,6 +192,42 @@ class SignupIn(BaseModel):
     remove: list[str] = Field(default_factory=list, max_length=200)
 
 
+@router.post("/operator/tailor-test")
+def tailor_test(me: uuid.UUID = Depends(_operator)):
+    """One real call to the tailoring service with the operator's own CV and a sample job. Nothing is saved or sent.
+    Says whether the address, the key, the service and the PDF download all work."""
+    import time
+
+    from app.models import CV, CVVersion
+    from app.services import tailoring
+
+    if not tailoring.enabled():
+        return {"ok": False, "step": "setup", "why": "CV_TAILOR_URL or CV_TAILOR_API_KEY is not set on this server"}
+    with system_session() as s:
+        cv = s.execute(select(CV).where(CV.user_id == me, CV.active.is_(True)).order_by(CV.is_default.desc())).scalars().first()
+        version = s.get(CVVersion, cv.current_version_id) if cv and cv.current_version_id else None
+        if version is None:
+            return {"ok": False, "step": "cv", "why": "no CV on this account"}
+        profile = version.profile
+    body = {
+        "user_ref": f"test-{me.hex[:12]}", "base_cv": {"profile": profile},
+        "job": {"title": "Senior .NET Developer", "company": "Test Company", "language": "en",
+                "description": "We build backend services in C#, .NET and .NET Core with SQL Server and REST APIs. "
+                               "Senior engineer, remote, five or more years of experience."},
+        "emphasis": [], "max_pages": 2, "purpose": "email",
+    }
+    started = time.time()
+    try:
+        client = tailoring.TailorClient()
+        result = client.tailor(body, f"test-{me.hex[:12]}-{int(started)}")
+        pdf = client.pdf(result)
+    except Exception as exc:  # noqa: BLE001 - the point is to report exactly what failed
+        return {"ok": False, "step": "service", "why": f"{type(exc).__name__}: {exc}"[:400],
+                "code": getattr(exc, "code", ""), "seconds": round(time.time() - started, 1)}
+    return {"ok": True, "seconds": round(time.time() - started, 1), "pdf_bytes": len(pdf),
+            "text_chars": len(result.get("text", "")), "status": result.get("status")}
+
+
 @router.post("/operator/rewrite-unsent")
 def rewrite_unsent(me: uuid.UUID = Depends(_operator)):
     """Write every unsent application email again under the current email rules."""

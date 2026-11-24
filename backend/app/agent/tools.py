@@ -97,6 +97,8 @@ def list_candidates(ctx: AgentContext, limit: int = 30) -> dict:
     if filtered:
         audit.record(ctx.session, user_id=ctx.user.id, actor="agent", tool="filter_candidates", run_id=ctx.run_id,
                      entity_id=ctx.campaign.id, result={"filtered_out": filtered, "remaining": len(passing)})
+    cv_service.fill_missing_embeddings(ctx.session, ctx.llm, [
+        v for v in (cv_service.current_version(ctx.session, c) for c in cv_service.list_cvs(ctx.session, ctx.user.id, active_only=True)) if v])
     ranked = matching.prerank(ctx.session, ctx.user.id, passing, limit=max(1, min(int(limit or 30), 30)))
     if config.priority_countries:       # the person's most wanted countries go first; the rest keep their order
         first = set(config.priority_countries)

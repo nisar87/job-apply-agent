@@ -132,9 +132,11 @@ def too_similar(body: str, previous: list[str]) -> bool:
 def fact_check(llm: LLMClient, body: str, profile: dict, fact_sheet: dict) -> list[str]:
     """Returns the unsupported claims. A separate model call from the one that wrote the draft."""
     prompt = (
-        "List every factual claim this email makes about the candidate and mark each as supported or not. "
-        "A claim is supported only if the profile or the fact sheet states it. Be strict: inflated years, "
-        "skills or employers that are not in the sources are unsupported.\n\n"
+        "List every factual claim this email makes about the candidate's background (employers, years of experience, "
+        "skills, tools, projects, numbers, results) and mark each as supported or not. Do not list anything else: not "
+        "the candidate's name, not statements about the job, the company or the posting, not the attached CV, not "
+        "greetings, wishes or offers to talk. A claim is supported only if the profile or the fact sheet states it. "
+        "Be strict: inflated years, skills or employers that are not in the sources are unsupported.\n\n"
         f"<email>\n{body}\n</email>\n\n<profile>\n{cv_service.profile_text(profile)[:8000]}\n</profile>\n\n"
         f"<fact_sheet>\n{fact_sheet}\n</fact_sheet>"
     )

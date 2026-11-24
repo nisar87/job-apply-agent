@@ -46,3 +46,7 @@ jobs:
             --project job-apply-agent-staging --limit 8 --order desc --format=json | python3 -c "import json,sys;[print(json.dumps({k:e.get(k) for k in ('timestamp','severity','textPayload','httpRequest','jsonPayload')},default=str)[:900]) for e in json.load(sys.stdin)]" || true
       - name: Revisions
         run: gcloud run revisions list --service jaa-api --region europe-west1 --project job-apply-agent-staging --limit 4 || true
+      - name: Service settings
+        run: |
+          gcloud run services describe jaa-api --region europe-west1 --project job-apply-agent-staging \
+            --format='value(spec.template.metadata.annotations,spec.template.spec.containers[0].resources.limits,status.latestReadyRevisionName)' || true

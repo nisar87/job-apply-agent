@@ -63,6 +63,36 @@ def write_cover_note(session: Session, llm: LLMClient, app: Application) -> str:
     return app.body
 
 
+def rewrite_unsent(session: Session, llm: LLMClient, user_id: uuid.UUID) -> int:
+    """Drafts written under older email rules and not yet sent are written again under the current ones."""
+    rows = session.execute(select(Application).where(
+        Application.user_id == user_id, Application.route == "email", Application.status.in_(("awaiting_approval", "queued")),
+    )).scalars().all()
+    done = 0
+    for app in rows:
+        if (app.check_results or {}).get("style") == "v2":
+            continue
+        posting = session.get(Posting, app.posting_id)
+        campaign = session.get(Campaign, app.campaign_id)
+        user = session.get(User, user_id)
+        version = session.get(CVVersion, app.cv_version_id)
+        match = session.get(Match, app.match_id) if app.match_id else None
+        company = company_of(session, posting)
+        draft, checks = write_checked(
+            llm, posting=posting, company_name=company.name if company else "", version=version,
+            rubric=(match.rubric if match else {}) or {}, fact_sheet=cv_service.get_fact_sheet(session, user_id),
+            style_guide=user.style_guide or "", sample_emails=list(user.sample_emails or []),
+            user_name=user.name or user.email, config=get_config(campaign), previous_bodies=previous_bodies(session, user_id),
+        )
+        app.subject, app.body, app.claims = draft.get("subject", app.subject), draft.get("body", app.body), draft.get("claims", [])
+        app.check_results = checks
+        if not checks["passed"]:
+            app.status, app.skip_reason = "failed", "; ".join(checks["problems"])
+        session.flush()
+        done += 1
+    return done
+
+
 def mark_applied_by_hand(session: Session, app: Application) -> Application:
     """The user applied on the employer's site themselves. It now counts as sent: cooldowns, the employer limit
     and reply tracking cover it, and the agent will not offer it again."""

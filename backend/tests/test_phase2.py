@@ -344,3 +344,29 @@ def test_classification_is_audited_with_reason(client, llm):
     with w.session() as s:
         row = s.execute(select(AuditLog).where(AuditLog.tool == "classify_message")).scalar_one()
         assert row.result["category"] == "interview_invitation" and row.result["action"] == "escalated"
+
+
+def test_application_prompt_sells_the_candidate_and_states_seniority(client, llm):
+    """The writing rules ask for years of experience and the posting's own must-haves, not one small example."""
+    from app.services import writing
+
+    seen = {}
+    llm.on("write_application", lambda p, s: seen.setdefault("prompt", p) and {"subject": "s", "body": "b", "language": "en", "claims": []})
+    assert "SELLING" in writing.APPLY_VOICE and writing.STYLE == "v2"
+    import inspect
+    src = inspect.getsource(writing.write_application)
+    assert "years of professional experience" in src and "the employer's own words" in src
+
+
+def test_unsent_drafts_from_older_rules_are_written_again(client, llm):
+    from app.services import applications as app_service
+    from tests.helpers import make_world
+    from tests.test_phase1_rules import queued_app
+
+    w = make_world(client, llm)
+    with w.session() as s:
+        app = queued_app(s, w, llm)
+        app.check_results = {"passed": True, "problems": []}          # written before the marker existed
+        assert app_service.rewrite_unsent(s, llm, w.user_id) == 1
+        assert app.check_results.get("style") == "v2"
+        assert app_service.rewrite_unsent(s, llm, w.user_id) == 0     # already current: nothing to do twice

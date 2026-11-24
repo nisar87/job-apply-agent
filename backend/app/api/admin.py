@@ -192,6 +192,24 @@ class SignupIn(BaseModel):
     remove: list[str] = Field(default_factory=list, max_length=200)
 
 
+@router.post("/operator/rewrite-unsent")
+def rewrite_unsent(me: uuid.UUID = Depends(_operator)):
+    """Write every unsent application email again under the current email rules."""
+    from app.llm.access import llm_for
+    from app.services import applications as app_service
+
+    with system_session() as s:
+        ids = list(s.execute(select(User.id)).scalars().all())
+    total = 0
+    for uid in ids:
+        try:
+            with system_session() as s:
+                total += app_service.rewrite_unsent(s, llm_for(s, uid), uid)
+        except Exception:  # noqa: BLE001 - one person's missing key must not stop the others
+            continue
+    return {"rewritten": total}
+
+
 @router.get("/operator/signup")
 def get_signup(_: uuid.UUID = Depends(_operator)):
     from app.services import signup

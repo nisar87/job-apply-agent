@@ -58,6 +58,11 @@ class TailorClient:
             err = {}
         return TailorError(err.get("message") or f"HTTP {resp.status_code}", err.get("code") or str(resp.status_code))
 
+    def _owner(self, source: dict) -> dict:
+        """Reads name the person (X-User-Ref), so the service can refuse a result that is not theirs."""
+        ref = source.get("user_ref")
+        return {**self._headers, **({"X-User-Ref": ref} if ref else {})}
+
     def tailor(self, body: dict, idempotency_key: str) -> dict:
         s = get_settings()
         resp = self._http.post(f"{self.base}/tailor", json=body,
@@ -71,18 +76,20 @@ class TailorClient:
                 raise TailorError("The service did not finish in time", "timeout")
             self._sleep(s.cv_tailor_poll_seconds)
             waited += s.cv_tailor_poll_seconds
-            poll = self._http.get(f"{self.base}/tailor/{data['id']}", headers=self._headers)
+            poll = self._http.get(f"{self.base}/tailor/{data['id']}", headers=self._owner(body))
             if poll.status_code != 200:
                 raise self._error(poll)
             data = poll.json()
         if data.get("status") != "completed":
             err = data.get("error") or {}
             raise TailorError(err.get("message", "The service failed"), err.get("code", "failed"))
+        data["user_ref"] = body.get("user_ref")      # kept so the PDF is fetched as the same person
         return data
 
     def pdf(self, result: dict) -> bytes:
         path = "/" + str(result.get("pdf_path", "")).lstrip("/")
-        resp = self._http.get(self.base.removesuffix("/v1") + "/v1" + path.removeprefix("/v1"), headers=self._headers)
+        resp = self._http.get(self.base.removesuffix("/v1") + "/v1" + path.removeprefix("/v1"),
+                              headers=self._owner(result))
         if resp.status_code != 200 or not resp.content.startswith(b"%PDF"):
             raise TailorError("The service did not return a PDF", str(resp.status_code))
         return resp.content

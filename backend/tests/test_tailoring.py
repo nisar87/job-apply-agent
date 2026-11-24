@@ -39,6 +39,8 @@ class Service:
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         self.calls.append((request.method, request.url.path, request.headers.get("idempotency-key")))
+        if request.method == "GET":
+            assert request.headers.get("x-user-ref") == "u_1"      # reads always name the person
         assert request.headers["authorization"] == "Bearer key"
         if request.method == "POST":
             if self.error:

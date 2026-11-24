@@ -370,3 +370,23 @@ def test_unsent_drafts_from_older_rules_are_written_again(client, llm):
         assert app_service.rewrite_unsent(s, llm, w.user_id) == 1
         assert app.check_results.get("style") == "v2"
         assert app_service.rewrite_unsent(s, llm, w.user_id) == 0     # already current: nothing to do twice
+
+
+def test_old_drafts_that_failed_their_checks_get_another_chance(client, llm):
+    from app.services import applications as app_service
+    from tests.helpers import make_world
+    from tests.test_phase1_rules import queued_app
+
+    w = make_world(client, llm)
+    with w.session() as s:
+        app = queued_app(s, w, llm)
+        app.status, app.skip_reason = "failed", "unsupported claim: x"
+        app.check_results = {"passed": False, "problems": ["unsupported claim: x"]}
+        assert app_service.rewrite_unsent(s, llm, w.user_id) == 1
+        assert app.status in ("awaiting_approval", "failed")
+        assert app.check_results.get("style") == "v2"
+        send_error = queued_app(s, w, llm)
+        send_error.status, send_error.skip_reason, send_error.check_results = "failed", "smtp refused", {"passed": True}
+        before = send_error.body
+        app_service.rewrite_unsent(s, llm, w.user_id)
+        assert send_error.status == "failed" and send_error.body == before

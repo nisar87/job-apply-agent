@@ -27,6 +27,7 @@ export default function Shell({ title, intro, children, actions }: { title: stri
   const [mailBroken, setMailBroken] = useState(false);
   const [noKey, setNoKey] = useState("");
   const [signedIn, setSignedIn] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     if (!getToken()) {
@@ -60,8 +61,13 @@ export default function Shell({ title, intro, children, actions }: { title: stri
   return (
     <div className="mx-auto flex min-h-screen max-w-6xl flex-col md:flex-row">
       <nav className="border-b border-rule px-4 py-4 md:w-56 md:shrink-0 md:border-b-0 md:border-r md:py-8" aria-label="Main">
-        <p className="letter text-lg">Job Apply Agent</p>
-        <div className="mt-4 flex flex-wrap gap-x-6 gap-y-3 md:block md:space-y-5">
+        <div className="flex items-center justify-between">
+          <p className="letter text-lg">Job Apply Agent</p>
+          <button className="btn btn-quiet text-sm md:hidden" aria-expanded={menuOpen} aria-controls="main-menu" onClick={() => setMenuOpen(!menuOpen)}>
+            {menuOpen ? "Close" : "Menu"}
+          </button>
+        </div>
+        <div id="main-menu" className={`${menuOpen ? "flex" : "hidden"} mt-4 flex-wrap gap-x-6 gap-y-3 md:block md:space-y-5`}>
           {nav.map((g) => (
             <div key={g.group}>
               <p className="hidden px-2 text-xs font-semibold text-quiet md:block">{g.group}</p>
@@ -70,7 +76,7 @@ export default function Shell({ title, intro, children, actions }: { title: stri
                   const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
                   return (
                     <li key={item.href}>
-                      <Link href={item.href} aria-current={active ? "page" : undefined}
+                      <Link href={item.href} onClick={() => setMenuOpen(false)} aria-current={active ? "page" : undefined}
                         className={`block rounded-md px-2 py-2 md:py-1.5 ${active ? "bg-ink font-semibold text-white" : "text-ink hover:bg-rule"}`}>
                         {item.label}
                       </Link>
@@ -81,7 +87,7 @@ export default function Shell({ title, intro, children, actions }: { title: stri
             </div>
           ))}
         </div>
-        <div className="mt-3 flex items-center gap-3 text-xs text-slate md:mt-6 md:block">
+        <div className={`${menuOpen ? "flex" : "hidden"} mt-3 items-center gap-3 text-xs text-slate md:mt-6 md:block`}>
           {me && <p className="truncate">{me.email}</p>}
           <button className="py-2 underline md:mt-1 md:py-0" onClick={signOut}>Sign out</button>
         </div>

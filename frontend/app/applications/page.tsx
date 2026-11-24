@@ -84,15 +84,15 @@ function Log() {
       ) : (
         <div className="overflow-x-auto">
           <table className="ledger">
-            <thead><tr><th>Company</th><th>Role</th><th>{tab === "manual" ? "Found" : "Date"}</th><th>CV</th><th>Score</th><th>Status</th></tr></thead>
+            <thead><tr><th>Company</th><th>Role</th><th className="hidden sm:table-cell">{tab === "manual" ? "Found" : "Date"}</th><th className="hidden sm:table-cell">CV</th><th className="hidden sm:table-cell">Score</th><th>Status</th></tr></thead>
             <tbody>
               {apps.data.map((a) => (
                 <tr key={a.id}>
                   <td><Link className="font-semibold underline" href={`/applications/${a.id}`}>{a.company || "Unknown company"}</Link></td>
                   <td>{a.title}{tab === "manual" && a.url && <> <a className="underline" href={a.url} target="_blank" rel="noreferrer">Open form</a></>}</td>
-                  <td className="whitespace-nowrap">{fmtDate(a.sent_at || a.created_at)}</td>
-                  <td>{a.cv_label}</td>
-                  <td>{a.score ?? ""}</td>
+                  <td className="hidden whitespace-nowrap sm:table-cell">{fmtDate(a.sent_at || a.created_at)}</td>
+                  <td className="hidden sm:table-cell">{a.cv_label}</td>
+                  <td className="hidden sm:table-cell">{a.score ?? ""}</td>
                   <td><Postmark status={a.status} />{a.status === "skipped" && <span className="block text-xs text-slate">{a.skip_reason}</span>}</td>
                 </tr>
               ))}

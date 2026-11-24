@@ -66,12 +66,15 @@ def write_cover_note(session: Session, llm: LLMClient, app: Application) -> str:
 def rewrite_unsent(session: Session, llm: LLMClient, user_id: uuid.UUID) -> int:
     """Drafts written under older email rules and not yet sent are written again under the current ones."""
     rows = session.execute(select(Application).where(
-        Application.user_id == user_id, Application.route == "email", Application.status.in_(("awaiting_approval", "queued")),
+        Application.user_id == user_id, Application.route == "email",
+        Application.status.in_(("awaiting_approval", "queued", "failed")),
     )).scalars().all()
     done = 0
     for app in rows:
         if (app.check_results or {}).get("style") == "v2":
             continue
+        if app.status == "failed" and (app.check_results or {}).get("passed") is not False:
+            continue   # failed for another reason (a send error), not because the written email failed its checks
         posting = session.get(Posting, app.posting_id)
         campaign = session.get(Campaign, app.campaign_id)
         user = session.get(User, user_id)
@@ -88,6 +91,8 @@ def rewrite_unsent(session: Session, llm: LLMClient, user_id: uuid.UUID) -> int:
         app.check_results = checks
         if not checks["passed"]:
             app.status, app.skip_reason = "failed", "; ".join(checks["problems"])
+        elif app.status == "failed":   # an old-style draft that failed the old checks and passes the current ones
+            app.status, app.skip_reason = "awaiting_approval", ""
         session.flush()
         done += 1
     return done

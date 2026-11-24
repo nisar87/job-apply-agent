@@ -4,6 +4,7 @@ The rest of the application never imports a provider SDK. It asks for a tier
 ("fast" or "strong"); settings map tiers to model names.
 """
 
+import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -40,6 +41,9 @@ class LLMResult:
     raw: Any = None  # provider message, passed back unchanged in tool conversations
 
 
+log = logging.getLogger(__name__)
+
+
 class LLMClient(Protocol):
     def generate(self, prompt: str, *, system: str | None = None, tier: str = "fast", task: str = "") -> LLMResult: ...
 
@@ -57,6 +61,10 @@ class LLMClient(Protocol):
 
 class SpendCapExceeded(Exception):
     """The user's daily model-spend cap is reached (master document, section 10)."""
+
+
+SEARCH_FEE_USD = 0.035      # Google Search grounding, per search the model runs (an estimate; check the bill)
+EMBED_USD_PER_MILLION = 0.15
 
 
 def cost_of(model: str, input_tokens: int, output_tokens: int) -> float:
@@ -104,32 +112,47 @@ class MeteredLLM:
         if self.cap_usd and self._usage_row().cost_usd >= self.cap_usd:
             raise SpendCapExceeded(f"daily model spend cap of ${self.cap_usd:.2f} reached")
 
-    def _record(self, result: LLMResult) -> LLMResult:
+    def _record(self, result: LLMResult, task: str = "", extra_cost: float = 0.0) -> LLMResult:
         row = self._usage_row()
-        cost = cost_of(result.model, result.input_tokens, result.output_tokens)
+        cost = cost_of(result.model, result.input_tokens, result.output_tokens) + extra_cost
         row.input_tokens += result.input_tokens
         row.output_tokens += result.output_tokens
         row.cost_usd += cost
         row.calls += 1
         self.run_cost += cost
         self.session.flush()
+        # One line per call, so the logs show which task spends what (read with the Staging logs workflow).
+        log.info("llm_call task=%s model=%s in=%s out=%s cost=%.5f", task or "?", result.model, result.input_tokens,
+                 result.output_tokens, cost)
         return result
 
     def generate(self, prompt, **kw) -> LLMResult:
         self._check_cap()
-        return self._record(self.client.generate(prompt, **kw))
+        return self._record(self.client.generate(prompt, **kw), kw.get("task", ""))
 
     def generate_structured(self, prompt, schema, **kw) -> LLMResult:
         self._check_cap()
-        return self._record(self.client.generate_structured(prompt, schema, **kw))
+        return self._record(self.client.generate_structured(prompt, schema, **kw), kw.get("task", ""))
 
     def generate_with_tools(self, messages, tools, **kw) -> LLMResult:
         self._check_cap()
-        return self._record(self.client.generate_with_tools(messages, tools, **kw))
+        return self._record(self.client.generate_with_tools(messages, tools, **kw), kw.get("task", ""))
 
     def search_web(self, prompt, **kw) -> LLMResult:
         self._check_cap()
-        return self._record(self.client.search_web(prompt, **kw))
+        result = self.client.search_web(prompt, **kw)
+        # Google charges for each search the model runs, on top of the tokens; counted here so the cap sees it.
+        searches = len((result.data or {}).get("queries", [])) or 1
+        return self._record(result, "web_search", extra_cost=searches * SEARCH_FEE_USD)
 
     def embed(self, texts: list[str]) -> list[list[float]]:
-        return self.client.embed(texts)
+        out = self.client.embed(texts)
+        tokens = sum(len(t) for t in texts) // 4
+        cost = tokens * EMBED_USD_PER_MILLION / 1_000_000
+        row = self._usage_row()
+        row.input_tokens += tokens
+        row.cost_usd += cost
+        row.calls += 1
+        self.run_cost += cost
+        log.info("llm_call task=embed model=embedding in=%s out=0 cost=%.5f", tokens, cost)
+        return out

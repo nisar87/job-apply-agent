@@ -63,9 +63,11 @@ export default function Shell({ title, intro, children, actions }: { title: stri
       <nav className="border-b border-rule px-4 py-4 md:w-56 md:shrink-0 md:border-b-0 md:border-r md:py-8" aria-label="Main">
         <div className="flex items-center justify-between">
           <p className="letter text-lg">Job Apply Agent</p>
-          <button className="btn btn-quiet text-sm md:hidden" aria-expanded={menuOpen} aria-controls="main-menu" onClick={() => setMenuOpen(!menuOpen)}>
-            {menuOpen ? "Close" : "Menu"}
-          </button>
+          <div className="md:hidden">
+            <button className="btn btn-quiet text-sm" aria-expanded={menuOpen} aria-controls="main-menu" onClick={() => setMenuOpen(!menuOpen)}>
+              {menuOpen ? "Close" : "Menu"}
+            </button>
+          </div>
         </div>
         <div id="main-menu" className={`${menuOpen ? "flex" : "hidden"} mt-4 flex-wrap gap-x-6 gap-y-3 md:block md:space-y-5`}>
           {nav.map((g) => (

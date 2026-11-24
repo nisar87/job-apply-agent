@@ -669,7 +669,9 @@ class WebSearchSource:
 
         from app.tasks.locks import get_redis
 
-        key = f"websearch:{self.clock().date().isoformat()}:{plan}"
+        # Google charges for every search, and the same question gives the same jobs for days, so an answer is kept
+        # for three days and shared by every search that asks it.
+        key = f"websearch3:{plan}"
         try:
             cached = get_redis().get(key)
         except Exception:  # noqa: BLE001
@@ -684,7 +686,7 @@ class WebSearchSource:
         result = llm.search_web(prompt, tier="strong", task="web_search")
         pages = (result.data or {}).get("pages", [])
         try:
-            get_redis().set(key, json.dumps({"text": result.text, "pages": pages}), ex=26 * 3600)
+            get_redis().set(key, json.dumps({"text": result.text, "pages": pages}), ex=72 * 3600)
         except Exception:  # noqa: BLE001
             pass
         return result.text, pages
